@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: ministering-visualizer
+    runtime: node
+    plan: free
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: MONGO_URI
+        sync: false
+      - key: GEOCODIO_API_KEY
+        sync: false
