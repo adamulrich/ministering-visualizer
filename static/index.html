@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#183b36">
+    <title>Ministering Visualizer</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="/vendor/leaflet/dist/leaflet.css">
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="brand">
+          <div class="brand-mark" aria-hidden="true">✦</div>
+          <div>
+            <p class="eyebrow">Pine Tree Ward · assignment workspace</p>
+            <h1>Ministering Visualizer</h1>
+          </div>
+        </div>
+        <div class="compact-imports">
+          <div class="compact-import" id="pdf-dropzone">
+            <span class="compact-file-badge purple">PDF</span>
+            <div class="compact-import-copy"><strong>Assignments</strong><span class="file-status" id="pdf-status">No PDF loaded</span></div>
+            <button class="button button-outline" data-file-target="pdf-input">Upload</button>
+            <input id="pdf-input" class="visually-hidden" type="file" accept="application/pdf,.pdf">
+          </div>
+          <div class="compact-import" id="xlsx-dropzone">
+            <span class="compact-file-badge green">XLS</span>
+            <div class="compact-import-copy"><strong>Unassigned lists</strong><span class="file-status" id="xlsx-status">No workbook loaded</span></div>
+            <button class="button button-outline" data-file-target="xlsx-input">Import</button>
+            <input id="xlsx-input" class="visually-hidden" type="file" accept=".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
+          </div>
+        </div>
+        <div class="compact-stats">
+          <span><b id="stat-districts">0</b><small>districts</small></span>
+          <span><b id="stat-routes">0</b><small>routes</small></span>
+          <span><b id="stat-ministers">0</b><small>ministers</small></span>
+          <span><b id="stat-households">0</b><small>households</small></span>
+          <span class="ready"><b id="stat-ready">0</b><small>ready</small></span>
+        </div>
+        <div class="header-actions">
+          <span class="save-status" id="save-status">Saved</span>
+          <button class="button button-primary" id="export-button">Save progress</button>
+          <button class="button button-quiet" id="load-progress-button">Load progress</button>
+          <button class="button button-quiet" id="reset-button">Clear workspace</button>
+        </div>
+      </header>
+
+      <section class="toolbar card">
+        <div class="toolbar-title">
+          <span class="section-kicker">Route board</span>
+          <h2>Assignment diagram</h2>
+        </div>
+        <label class="field compact-field">
+          <span>Search</span>
+          <input id="search-input" type="search" placeholder="Name or address">
+        </label>
+        <label class="field compact-field">
+          <span>District</span>
+          <select id="district-filter"><option value="all">All districts</option></select>
+        </label>
+        <div class="field compact-field">
+          <span>Households / route</span>
+          <div class="multi-filter" id="household-filter-menu">
+            <button class="multi-filter-button" id="household-filter-button" type="button" aria-expanded="false" aria-haspopup="true">Any route</button>
+            <div class="multi-filter-popover hidden" id="household-filter-popover">
+              <label class="multi-filter-option"><input type="checkbox" data-household-filter="all" checked><span>Any route</span></label>
+              <div class="multi-filter-divider"></div>
+              <label class="multi-filter-option"><input type="checkbox" data-household-filter="0"><span>0 households</span></label>
+              <label class="multi-filter-option"><input type="checkbox" data-household-filter="1"><span>1 household</span></label>
+              <label class="multi-filter-option"><input type="checkbox" data-household-filter="2"><span>2 households</span></label>
+              <label class="multi-filter-option"><input type="checkbox" data-household-filter="3"><span>3 households</span></label>
+              <label class="multi-filter-option"><input type="checkbox" data-household-filter="4"><span>4 households</span></label>
+              <label class="multi-filter-option"><input type="checkbox" data-household-filter="5"><span>5 households</span></label>
+              <label class="multi-filter-option"><input type="checkbox" data-household-filter="6"><span>6 households</span></label>
+            </div>
+          </div>
+          <select id="household-filter" class="visually-hidden" tabindex="-1" aria-hidden="true">
+            <option value="all">Any route</option>
+            <option value="0">0</option><option value="1">1</option><option value="2">2</option>
+            <option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option>
+          </select>
+        </div>
+        <label class="field compact-field">
+          <span>Household sort</span>
+          <select id="household-sort">
+            <option value="name">Name</option>
+            <option value="needs">High needs first</option>
+          </select>
+        </label>
+        <label class="toggle-field"><input id="show-empty-toggle" type="checkbox"><span>Show empty routes</span></label>
+      </section>
+
+      <main class="workspace-grid">
+        <aside class="sidebar">
+          <section class="bucket-panel card" id="unassigned-ministers-panel">
+            <div class="panel-heading">
+              <div><span class="section-kicker">Assignment readiness</span><h2>Ministers</h2></div>
+              <div class="panel-heading-actions"><span class="count-pill" id="unassigned-minister-count">0</span><button class="button-icon panel-fullscreen-button" type="button" data-panel-fullscreen="unassigned-ministers-panel" title="Full screen ministers" aria-label="Full screen ministers">⛶</button></div>
+            </div>
+            <div class="bucket-tabs" role="tablist" aria-label="Minister assignment readiness">
+              <button class="bucket-tab is-active" data-bucket-tab="minister" data-bucket-view="not-ready" type="button">Not ready <span id="minister-not-ready-count">0</span></button>
+              <button class="bucket-tab" data-bucket-tab="minister" data-bucket-view="ready" type="button">Ready <span id="minister-ready-count">0</span></button>
+            </div>
+            <p class="panel-note">Review the list, then mark ministers ready before placing them on a route.</p>
+            <label class="bucket-search"><span class="visually-hidden">Search ministers</span><input id="minister-search" type="search" placeholder="Search ministers"></label>
+            <div class="bucket-dropzone" id="unassigned-ministers" data-drop-kind="minister"></div>
+          </section>
+          <section class="bucket-panel card" id="unassigned-households-panel">
+            <div class="panel-heading">
+              <div><span class="section-kicker">Assignment readiness</span><h2>Households</h2></div>
+              <div class="panel-heading-actions"><span class="count-pill warm" id="unassigned-household-count">0</span><button class="button-icon panel-fullscreen-button" type="button" data-panel-fullscreen="unassigned-households-panel" title="Full screen households" aria-label="Full screen households">⛶</button></div>
+            </div>
+            <div class="bucket-tabs" role="tablist" aria-label="Household assignment readiness">
+              <button class="bucket-tab is-active" data-bucket-tab="household" data-bucket-view="not-ready" type="button">Not ready <span id="household-not-ready-count">0</span></button>
+              <button class="bucket-tab" data-bucket-tab="household" data-bucket-view="ready" type="button">Ready <span id="household-ready-count">0</span></button>
+            </div>
+            <p class="panel-note">Review the list, then mark households ready before placing them on a route.</p>
+            <label class="bucket-search"><span class="visually-hidden">Search households</span><input id="household-search" type="search" placeholder="Search households"></label>
+            <div class="bucket-dropzone" id="unassigned-households" data-drop-kind="household"></div>
+          </section>
+        </aside>
+
+        <section class="diagram-wrap card">
+          <div class="diagram-header">
+            <div>
+              <span class="section-kicker">Drag and drop editor</span>
+              <p class="diagram-help">Move routes between districts, and move people or households between routes. Locked routes reject changes.</p>
+            </div>
+            <div class="legend"><span><i class="legend-dot"></i> Active route</span><span><i class="legend-dot needs"></i> High needs</span><span>⌘ Locked</span></div>
+          </div>
+          <div id="empty-state" class="empty-state">
+            <div class="empty-orb">✦</div>
+            <h2>Load your assignment files to begin</h2>
+            <p>The diagram will appear here after the PDF and workbook are loaded. You can also load either file first.</p>
+          </div>
+          <div id="diagram" class="diagram" aria-live="polite"></div>
+        </section>
+      </main>
+    </div>
+
+    <div id="toast" class="toast" role="status"></div>
+    <div id="modal-backdrop" class="modal-backdrop hidden">
+      <div class="modal card" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+        <span class="section-kicker">Confirm action</span>
+        <h2 id="modal-title">Dissolve route?</h2>
+        <p id="modal-copy"></p>
+        <div class="modal-actions"><button class="button button-quiet" id="modal-cancel">Cancel</button><button class="button button-danger" id="modal-confirm">Dissolve route</button></div>
+      </div>
+    </div>
+    <div id="map-backdrop" class="modal-backdrop hidden">
+      <div class="map-modal card" role="dialog" aria-modal="true" aria-labelledby="map-title">
+        <div class="map-modal-header">
+          <div><span class="section-kicker">Route map</span><h2 id="map-title">Route map</h2><p id="map-status">Preparing addresses...</p></div>
+          <button class="button button-quiet" id="map-close">Close</button>
+        </div>
+        <div id="route-map" class="route-map"></div>
+        <div class="map-legend"><span><i class="map-legend-dot minister"></i> Ministers</span><span><i class="map-legend-dot household"></i> Households</span><span id="map-counts"></span></div>
+      </div>
+    </div>
+    <script src="/vendor/leaflet/dist/leaflet.js"></script>
+    <script src="/vendor/xlsx/dist/xlsx.full.min.js"></script>
+    <input id="progress-input" class="visually-hidden" type="file" accept=".xlsx,.xls">
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>
