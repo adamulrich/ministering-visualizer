@@ -90,7 +90,6 @@
             <option value="needs">High needs first</option>
           </select>
         </label>
-        <label class="toggle-field"><input id="show-empty-toggle" type="checkbox"><span>Show empty routes</span></label>
       </section>
 
       <main class="workspace-grid">
@@ -98,7 +97,7 @@
           <section class="bucket-panel card" id="unassigned-ministers-panel">
             <div class="panel-heading">
               <div><span class="section-kicker">Assignment readiness</span><h2>Ministers</h2></div>
-              <div class="panel-heading-actions"><span class="count-pill" id="unassigned-minister-count">0</span><button class="button-icon panel-fullscreen-button" type="button" data-panel-fullscreen="unassigned-ministers-panel" title="Full screen ministers" aria-label="Full screen ministers">⛶</button></div>
+              <div class="panel-heading-actions"><span class="count-pill" id="unassigned-minister-count">0</span><button class="button-icon panel-expand-button" type="button" data-panel-expand="minister" aria-expanded="false" title="Expand ministers">↕</button><button class="button-icon panel-fullscreen-button" type="button" data-panel-fullscreen="unassigned-ministers-panel" title="Full screen ministers" aria-label="Full screen ministers">⛶</button></div>
             </div>
             <div class="bucket-tabs" role="tablist" aria-label="Minister assignment readiness">
               <button class="bucket-tab is-active" data-bucket-tab="minister" data-bucket-view="not-ready" type="button">Not ready <span id="minister-not-ready-count">0</span></button>
@@ -111,7 +110,7 @@
           <section class="bucket-panel card" id="unassigned-households-panel">
             <div class="panel-heading">
               <div><span class="section-kicker">Assignment readiness</span><h2>Households</h2></div>
-              <div class="panel-heading-actions"><span class="count-pill warm" id="unassigned-household-count">0</span><button class="button-icon panel-fullscreen-button" type="button" data-panel-fullscreen="unassigned-households-panel" title="Full screen households" aria-label="Full screen households">⛶</button></div>
+              <div class="panel-heading-actions"><span class="count-pill warm" id="unassigned-household-count">0</span><button class="button-icon panel-expand-button" type="button" data-panel-expand="household" aria-expanded="false" title="Expand households">↕</button><button class="button-icon panel-fullscreen-button" type="button" data-panel-fullscreen="unassigned-households-panel" title="Full screen households" aria-label="Full screen households">⛶</button></div>
             </div>
             <div class="bucket-tabs" role="tablist" aria-label="Household assignment readiness">
               <button class="bucket-tab is-active" data-bucket-tab="household" data-bucket-view="not-ready" type="button">Not ready <span id="household-not-ready-count">0</span></button>

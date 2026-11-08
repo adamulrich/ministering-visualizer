@@ -8,11 +8,12 @@ const state = {
   unassignedMinisters: [],
   unassignedHouseholds: [],
   bucketViews: { minister: "not-ready", household: "not-ready" },
+  bucketPanels: { minister: false, household: false },
   bucketFilters: { householdAssign: "all" },
   pdfLoaded: false,
   workbookLoaded: false,
   isDirty: false,
-  filters: { search: "", district: "all", households: [], householdsAny: true, sort: "name", showEmpty: false },
+  filters: { search: "", district: "all", households: [], householdsAny: true, sort: "name" },
   nextId: 1,
 };
 let activeDrag = null;
@@ -35,7 +36,6 @@ const els = {
   householdFilterButton: $("household-filter-button"),
   householdFilterPopover: $("household-filter-popover"),
   householdSort: $("household-sort"),
-  showEmpty: $("show-empty-toggle"),
   unassignedMinisters: $("unassigned-ministers"),
   unassignedHouseholds: $("unassigned-households"),
   toast: $("toast"),
@@ -62,6 +62,29 @@ const initial = (value) => clean(value).split(/\s+/).filter(Boolean).slice(0, 2)
 const normalize = (value) => clean(value).toLowerCase();
 const matches = (value, search) => normalize(value).includes(normalize(search));
 const memberDisplayName = (member) => clean(typeof member === "string" ? member : member?.name).replace(/\s+(Male|Female)\s+\d{1,2}\s+[A-Za-z]+$/i, "").trim();
+function givenNameDisplay(value) {
+  const name = memberDisplayName(value);
+  if (!name) return "";
+  if (name.includes(",")) return clean(name.split(",").slice(1).join(",")).replace(/\s+(?:Jr\.?|Sr\.?|II|III|IV)$/i, "");
+  return clean(name.split(/\s+/)[0]);
+}
+function lastNameDisplay(value) {
+  const name = memberDisplayName(value);
+  if (!name) return "";
+  return name.includes(",") ? clean(name.split(",")[0]) : clean(name.split(/\s+/).pop());
+}
+function firstInitialDisplay(value) { const initial = givenNameDisplay(value).charAt(0).toUpperCase(); return initial ? `${initial}.` : ""; }
+function uiHeadingName(person, kind) {
+  if (kind === "household") {
+    const lastName = lastNameDisplay(person.name);
+    const headInitial = firstInitialDisplay(person.members?.[0]);
+    if (lastName && headInitial) return `${lastName}, ${headInitial}`;
+    if (lastName) return lastName;
+  }
+  const lastName = lastNameDisplay(person.name);
+  const givenNames = givenNameDisplay(person.name);
+  return lastName && givenNames ? `${lastName}, ${givenNames}` : clean(person.name);
+}
 
 function updateSaveStatus() {
   const status = $("save-status");
@@ -145,17 +168,16 @@ function updateStats() {
   $("household-ready-count").textContent = state.unassignedHouseholds.filter((item) => item.ready).length;
   const previous = state.filters.district || els.district.value;
   els.district.innerHTML = `<option value="all">All districts</option>${state.districts.map((district) => `<option value="${esc(district.id)}">${esc(district.name)}</option>`).join("")}`;
-  els.district.value = state.districts.some((district) => district.id === previous) ? previous : "all";
+  els.district.value = state.districts.some((district) => clean(district.id) === clean(previous)) ? previous : "all";
   state.filters.district = els.district.value;
 }
 
 function visibleRoute(route, district) {
   const { search, district: districtFilter } = state.filters;
   const householdFilter = householdFilterValues(state.filters.households);
-  if (districtFilter !== "all" && district.id !== districtFilter) return false;
+  if (districtFilter !== "all" && clean(district.id) !== clean(districtFilter)) return false;
   const count = route.households.length;
   if (state.filters.householdsAny === false && (!householdFilter.length || !householdFilter.includes(String(count)))) return false;
-  if (!state.filters.showEmpty && count === 0 && !search) return false;
   if (!search) return true;
   return [route.name, district.name, ...route.ministers.map((item) => `${item.name} ${item.address || ""}`), ...route.households.flatMap((item) => [item.name, item.address, ...(item.members || []).map((member) => member.name)])].some((value) => matches(value, search));
 }
@@ -174,19 +196,21 @@ function render() {
 const householdAssignmentValues = ["Must", "Should", "Nice", "No"];
 function assignmentSelectHtml(household) {
   const current = householdAssignmentValues.includes(household.assign) ? household.assign : "";
-  return `<div class="assign-cell"><label class="visually-hidden" for="assign-${esc(household.id)}">Assign ${esc(household.name)}</label><select class="assign-select" id="assign-${esc(household.id)}" data-action="set-assign" data-id="${esc(household.id)}" aria-label="Assign ${esc(household.name)}"><option value="">—</option>${householdAssignmentValues.map((value) => `<option value="${value}" ${current === value ? "selected" : ""}>${value}</option>`).join("")}</select></div>`;
+  const displayName = uiHeadingName(household, "household");
+  return `<div class="assign-cell"><label class="visually-hidden" for="assign-${esc(household.id)}">Assign ${esc(displayName)}</label><select class="assign-select" id="assign-${esc(household.id)}" data-action="set-assign" data-id="${esc(household.id)}" aria-label="Assign ${esc(displayName)}"><option value="">—</option>${householdAssignmentValues.map((value) => `<option value="${value}" ${current === value ? "selected" : ""}>${value}</option>`).join("")}</select></div>`;
 }
 
 function personHtml(person, kind, options = {}) {
   const isHousehold = kind === "household";
+  const displayName = uiHeadingName(person, kind);
   const meta = isHousehold ? "" : [person.age ? `Age ${person.age}` : "", person.address || ""].filter(Boolean).join(" · ");
   const moveButton = options.showMove ? `<button class="button-icon" title="Move to unassigned" data-action="move-unassigned" data-kind="${kind}" data-id="${esc(person.id)}">↗</button>` : "";
   const needsButton = isHousehold ? `<button class="button-icon needs-button ${person.highNeeds ? "is-active" : ""}" title="${person.highNeeds ? "Remove high needs flag" : "Mark high needs"}" data-action="toggle-needs" data-id="${esc(person.id)}">H</button>` : "";
   const readinessButton = options.bucket ? `<button class="button-icon readiness-button ${person.ready ? "is-ready" : ""}" title="${person.ready ? "Move back to not ready" : "Mark ready for assignment"}" data-action="toggle-ready" data-kind="${kind}" data-id="${esc(person.id)}">${person.ready ? "↶" : "✓"}</button>` : "";
   const assignmentCell = isHousehold ? assignmentSelectHtml(person) : "";
   return `<div class="${isHousehold ? "household-row" : "person-row"} ${options.route ? "route-row" : ""}" draggable="true" data-drag-kind="${kind}" data-drag-id="${esc(person.id)}">
-    <div class="avatar ${isHousehold ? "warm" : ""}">${initial(person.name)}</div>
-    <div class="row-copy"><div class="row-name">${esc(person.name)}</div>${meta ? `<div class="row-meta">${esc(meta)}</div>` : ""}${isHousehold && person.members?.length ? `<div class="household-members">${esc(person.members.map(memberDisplayName).filter(Boolean).join(" · "))}</div>` : ""}</div>
+    <div class="avatar ${isHousehold ? "warm" : ""}">${initial(displayName)}</div>
+    <div class="row-copy"><div class="row-name">${esc(displayName)}</div>${meta ? `<div class="row-meta">${esc(meta)}</div>` : ""}${isHousehold && person.members?.length ? `<div class="household-members">${esc(person.members.map(givenNameDisplay).filter(Boolean).join(" · "))}</div>` : ""}</div>
     ${assignmentCell}
     <div class="household-flags">${needsButton}${readinessButton}${moveButton}</div>
   </div>`;
@@ -198,6 +222,25 @@ function renderBuckets() {
   const ministerQuery = normalize(els.ministerSearch.value);
   const householdQuery = normalize(els.householdSearch.value);
   const householdAssign = state.bucketFilters.householdAssign || "all";
+  const ministerPanel = $("unassigned-ministers-panel");
+  const householdPanel = $("unassigned-households-panel");
+  const sidebar = document.querySelector(".sidebar");
+  const ministerExpanded = Boolean(state.bucketPanels.minister);
+  const householdExpanded = Boolean(state.bucketPanels.household);
+  const hasExpandedPanel = ministerExpanded || householdExpanded;
+  sidebar.classList.toggle("is-minister-expanded", ministerExpanded && !householdExpanded);
+  sidebar.classList.toggle("is-household-expanded", householdExpanded && !ministerExpanded);
+  sidebar.classList.toggle("is-both-expanded", ministerExpanded && householdExpanded);
+  ministerPanel.classList.toggle("is-expanded", ministerExpanded);
+  ministerPanel.classList.toggle("is-collapsed", hasExpandedPanel && !ministerExpanded);
+  householdPanel.classList.toggle("is-expanded", householdExpanded);
+  householdPanel.classList.toggle("is-collapsed", hasExpandedPanel && !householdExpanded);
+  document.querySelectorAll("[data-panel-expand]").forEach((button) => {
+    const expanded = Boolean(state.bucketPanels[button.dataset.panelExpand]);
+    button.setAttribute("aria-expanded", String(expanded));
+    button.title = expanded ? `Collapse ${button.dataset.panelExpand === "minister" ? "ministers" : "households"}` : `Expand ${button.dataset.panelExpand === "minister" ? "ministers" : "households"}`;
+    button.textContent = expanded ? "⤡" : "⤢";
+  });
   const ministers = state.unassignedMinisters.filter((person) => (ministerView === "ready" ? person.ready : !person.ready) && (!ministerQuery || [person.name, person.address, person.email].some((value) => matches(value, ministerQuery))));
   const households = state.unassignedHouseholds.filter((household) => (householdView === "ready" ? household.ready : !household.ready) && (householdAssign === "all" || householdAssign === (household.assign || "none")) && (!householdQuery || [household.name, household.address, ...(household.members || []).map((member) => member.name)].some((value) => matches(value, householdQuery))));
   els.unassignedMinisters.innerHTML = ministers.length ? ministers.map((person) => personHtml(person, "minister", { bucket: true })).join("") : `<div class="bucket-empty">${ministerView === "ready" ? "No ministers are ready yet." : "No ministers are waiting for review."}</div>`;
@@ -221,12 +264,13 @@ function renderBuckets() {
 }
 
 function renderDiagram() {
-  const districts = state.districts.filter((district) => district.routes.some((route) => visibleRoute(route, district)) || state.filters.showEmpty || state.filters.district === district.id);
+  const districtMatches = (district) => state.filters.district === "all" || clean(district.id) === clean(state.filters.district);
+  const districts = state.districts.filter((district) => districtMatches(district) && district.routes.some((route) => visibleRoute(route, district)));
   const districtDropbar = `<div class="route-district-dropbar" aria-label="Move route to district">${state.districts.map((district) => `<div class="district-drop-target" data-district-drop="${esc(district.id)}" role="button" tabindex="0">Drop in ${esc(district.name)}</div>`).join("")}</div>`;
   els.diagram.innerHTML = districtDropbar + districts.map((district) => {
-    const routes = district.routes.filter((route) => visibleRoute(route, district) || state.filters.showEmpty);
+    const routes = district.routes.filter((route) => visibleRoute(route, district));
     return `<section class="district-column" data-district-id="${esc(district.id)}">
-      <div class="district-header"><div class="district-title"><h3>${esc(district.name)}</h3><span>${district.routes.length} routes</span></div><span class="district-drop-hint">Drop route here</span></div>
+      <div class="district-header"><div class="district-title"><h3>${esc(district.name)}</h3><span>${district.routes.length} routes</span></div><div class="district-header-actions"><span class="district-drop-hint">Drop route here</span><button class="button button-quiet add-route-button" type="button" data-action="add-route" data-district-id="${esc(district.id)}">+ Route</button></div></div>
       <div class="route-stack" data-district-drop="${esc(district.id)}">${routes.length ? routes.map((route) => routeHtml(route)).join("") : `<div class="empty-route">No routes match the current filters.</div>`}</div>
     </section>`;
   }).join("");
@@ -430,6 +474,17 @@ function moveDroppedItem(data, target, targetReady = null) {
 function handleAction(event) {
   event.stopPropagation();
   const action = event.currentTarget.dataset.action;
+  if (action === "add-route") {
+    const district = findDistrict(event.currentTarget.dataset.districtId);
+    if (!district) return;
+    district.routes.unshift({ id: uid("route"), name: "Open route", locked: false, ministers: [], households: [], source: "manual" });
+    state.filters.search = "";
+    els.search.value = "";
+    markDirty();
+    toast(`${district.name} route created.`);
+    render();
+    return;
+  }
   if (action === "move-unassigned") moveDroppedItem({ kind: event.currentTarget.dataset.kind, id: event.currentTarget.dataset.id }, "unassigned");
   if (action === "set-assign") {
     const household = allAssignedHouseholds().find((item) => item.id === event.currentTarget.dataset.id) || state.unassignedHouseholds.find((item) => item.id === event.currentTarget.dataset.id);
@@ -757,7 +812,7 @@ function restoreFromAssignmentsSheet(rows) {
     if (householdName) route.households.push({ id: uid("household"), name: householdName, address: clean(rowValue(row, ["address"])), assign: clean(rowValue(row, ["assign", "assignment"])), highNeeds: parseReady(rowValue(row, ["highneeds", "high needs"])), ready: true, members: clean(rowValue(row, ["householdmembers", "household members"])).split(" | ").map((name) => ({ name, gender: "", birthday: "" })).filter((member) => member.name), source: "saved-workbook" });
   }
   districts.forEach((district) => district.routes.forEach(refreshRouteName));
-  return { version: 1, districts, unassignedMinisters: [], unassignedHouseholds: [], bucketViews: { minister: "not-ready", household: "not-ready" }, filters: { search: "", district: "all", households: [], householdsAny: true, sort: "name", showEmpty: false } };
+  return { version: 1, districts, unassignedMinisters: [], unassignedHouseholds: [], bucketViews: { minister: "not-ready", household: "not-ready" }, bucketPanels: { minister: false, household: false }, filters: { search: "", district: "all", households: [], householdsAny: true, sort: "name" } };
 }
 
 function restoreSavedState(savedState) {
@@ -766,15 +821,15 @@ function restoreSavedState(savedState) {
   state.unassignedMinisters = savedState.unassignedMinisters || [];
   state.unassignedHouseholds = savedState.unassignedHouseholds || [];
   state.bucketViews = { minister: "not-ready", household: "not-ready", ...(savedState.bucketViews || {}) };
+  state.bucketPanels = { minister: false, household: false, ...(savedState.bucketPanels || {}) };
   state.bucketFilters = { householdAssign: "all", ...(savedState.bucketFilters || {}) };
   const savedFilters = savedState.filters || {};
-  state.filters = { search: "", district: "all", households: [], householdsAny: true, sort: "name", showEmpty: false, ...savedFilters };
+  state.filters = { search: "", district: "all", households: [], householdsAny: true, sort: "name", ...savedFilters };
   state.filters.households = householdFilterValues(state.filters.households);
   if (!("householdsAny" in savedFilters)) state.filters.householdsAny = !state.filters.households.length;
   els.search.value = state.filters.search;
   syncHouseholdFilterControl();
   els.householdSort.value = state.filters.sort;
-  els.showEmpty.checked = state.filters.showEmpty;
   els.householdAssignFilter.value = state.bucketFilters.householdAssign;
   state.pdfLoaded = state.districts.length > 0;
   state.isDirty = false;
@@ -891,6 +946,7 @@ function downloadWorkbook() {
     unassignedMinisters: state.unassignedMinisters,
     unassignedHouseholds: state.unassignedHouseholds,
     bucketViews: state.bucketViews,
+    bucketPanels: state.bucketPanels,
     bucketFilters: state.bucketFilters,
     filters: state.filters,
   };
@@ -969,7 +1025,6 @@ document.addEventListener("click", (event) => {
   }
 });
 els.householdSort.addEventListener("change", () => { state.filters.sort = els.householdSort.value; renderDiagram(); });
-els.showEmpty.addEventListener("change", () => { state.filters.showEmpty = els.showEmpty.checked; renderDiagram(); });
 els.modalCancel.addEventListener("click", closeModal);
 els.modalBackdrop.addEventListener("click", (event) => { if (event.target === els.modalBackdrop) closeModal(); });
 els.mapClose.addEventListener("click", closeMap);
@@ -978,6 +1033,11 @@ els.ministerSearch.addEventListener("input", renderBuckets);
 els.householdSearch.addEventListener("input", renderBuckets);
 els.householdAssignFilter.addEventListener("change", () => { state.bucketFilters.householdAssign = els.householdAssignFilter.value; renderBuckets(); });
 document.querySelectorAll("[data-panel-fullscreen]").forEach((button) => button.addEventListener("click", () => togglePanelFullscreen(button.dataset.panelFullscreen)));
+document.querySelectorAll("[data-panel-expand]").forEach((button) => button.addEventListener("click", () => {
+  const panel = button.dataset.panelExpand;
+  state.bucketPanels[panel] = !state.bucketPanels[panel];
+  renderBuckets();
+}));
 document.addEventListener("fullscreenchange", updatePanelFullscreenButtons);
 document.addEventListener("keydown", (event) => { if (event.key === "Escape" && document.fullscreenElement) document.exitFullscreen().catch(() => {}); });
 window.addEventListener("beforeunload", (event) => { if (!state.isDirty) return; event.preventDefault(); event.returnValue = ""; });

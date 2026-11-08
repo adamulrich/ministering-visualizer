@@ -85,10 +85,10 @@ h2 { margin: 4px 0 0; font-size: 18px; letter-spacing: -.025em; }
 .toolbar-title h2 { font-size: 16px; }
 .field { display: grid; gap: 5px; }
 .field span { color: var(--muted); font-size: 10px; font-weight: 750; text-transform: uppercase; letter-spacing: .08em; }
-.compact-field input, .compact-field select { min-width: 148px; height: 34px; border: 1px solid var(--line); border-radius: 8px; padding: 0 9px; color: var(--ink); background: #fff; font-size: 12px; outline: none; }
+.compact-field input:not([type="checkbox"]), .compact-field select { min-width: 148px; height: 34px; border: 1px solid var(--line); border-radius: 8px; padding: 0 9px; color: var(--ink); background: #fff; font-size: 12px; outline: none; }
 .compact-field select[multiple] { min-width: 180px; overflow: hidden; }
-.compact-field input { min-width: 205px; }
-.compact-field input:focus, .compact-field select:focus { border-color: var(--forest-2); box-shadow: 0 0 0 3px rgba(44,116,101,.1); }
+.compact-field input:not([type="checkbox"]) { min-width: 205px; }
+.compact-field input:not([type="checkbox"]):focus, .compact-field select:focus { border-color: var(--forest-2); box-shadow: 0 0 0 3px rgba(44,116,101,.1); }
 .multi-filter { position: relative; min-width: 180px; }
 .multi-filter-button { width: 100%; height: 38px; padding: 0 28px 0 11px; border: 1px solid var(--line); border-radius: 8px; color: var(--ink); background: #fff; font-size: 13px; text-align: left; position: relative; }
 .multi-filter-button::after { content: ""; position: absolute; right: 11px; top: 50%; width: 6px; height: 6px; border-right: 1px solid currentColor; border-bottom: 1px solid currentColor; transform: translateY(-65%) rotate(45deg); }
@@ -96,18 +96,25 @@ h2 { margin: 4px 0 0; font-size: 18px; letter-spacing: -.025em; }
 .multi-filter-popover { position: absolute; z-index: 12; top: calc(100% + 5px); left: 0; width: 100%; min-width: 190px; padding: 6px; border: 1px solid var(--line); border-radius: 10px; background: #fff; box-shadow: 0 12px 28px rgba(20,50,42,.16); }
 .multi-filter-option { display: flex; align-items: center; gap: 8px; min-height: 31px; padding: 0 7px; border-radius: 6px; color: var(--ink); font-size: 12px; cursor: pointer; }
 .multi-filter-option:hover { background: #f1f7f3; }
-.multi-filter-option input { width: 14px; height: 14px; margin: 0; accent-color: var(--forest); }
+.multi-filter-option input { width: 14px; min-width: 14px; height: 14px; margin: 0; padding: 0; accent-color: var(--forest); }
 .multi-filter-divider { height: 1px; margin: 4px 7px; background: var(--line); }
 .toggle-field { display: flex; align-items: center; gap: 7px; height: 34px; padding: 0 4px; color: var(--muted); font-size: 11px; white-space: nowrap; }
 .toggle-field input { accent-color: var(--forest); }
-.workspace-grid { display: grid; grid-template-columns: 305px minmax(0, 1fr); gap: 12px; align-items: stretch; flex: 1 1 auto; min-height: 0; overflow: hidden; }
+.workspace-grid { display: grid; grid-template-columns: 405px minmax(0, 1fr); gap: 12px; align-items: stretch; flex: 1 1 auto; min-height: 0; overflow: hidden; }
 .sidebar { display: grid; grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; min-height: 0; overflow: hidden; }
+.sidebar.is-minister-expanded { grid-template-rows: minmax(86px, 1fr) minmax(86px, 0fr); }
+.sidebar.is-household-expanded { grid-template-rows: minmax(86px, 0fr) minmax(86px, 1fr); }
+.sidebar.is-both-expanded { grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); }
 .bucket-panel { min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+.bucket-panel.is-collapsed > :not(.panel-heading) { display: none; }
+.bucket-panel.is-collapsed .panel-heading { padding-bottom: 17px; }
 .bucket-panel.is-dragover { border-color: var(--forest-2); background: #f0faf4; box-shadow: inset 0 0 0 2px rgba(44,116,101,.08); }
 .panel-heading { display: flex; align-items: center; justify-content: space-between; padding: 17px 17px 0; }
 .panel-heading-actions { display: flex; align-items: center; gap: 4px; }
 .panel-fullscreen-button { width: 25px; height: 25px; padding: 0; color: #81908a; font-size: 15px; }
 .panel-fullscreen-button:hover { color: var(--forest); background: #edf7f1; }
+.panel-expand-button { width: 25px; height: 25px; padding: 0; color: #81908a; font-size: 16px; }
+.panel-expand-button:hover { color: var(--forest); background: #edf7f1; }
 .panel-note { margin: 7px 17px 14px; color: var(--muted); font-size: 11px; line-height: 1.4; }
 .bucket-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin: 0 17px; padding: 3px; border-radius: 9px; background: #eef3ef; }
 .bucket-tab { min-height: 27px; border: 0; border-radius: 7px; color: var(--muted); background: transparent; font-size: 10px; font-weight: 750; }
@@ -158,6 +165,8 @@ h2 { margin: 4px 0 0; font-size: 18px; letter-spacing: -.025em; }
 .district-column { min-width: 280px; border: 1px solid var(--line); border-radius: 15px; background: #f8faf8; }
 .district-column.is-dragover { border-color: var(--forest-2); box-shadow: inset 0 0 0 2px rgba(44,116,101,.1); }
 .district-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 14px 14px 11px; border-bottom: 1px solid var(--line); }
+.district-header-actions { display: flex; align-items: center; gap: 8px; }
+.add-route-button { min-height: 28px; padding: 0 9px; font-size: 10px; }
 .district-title { display: flex; align-items: baseline; gap: 7px; }
 .district-title h3 { margin: 0; font-size: 15px; }
 .district-title span { color: var(--muted); font-size: 10px; }
@@ -238,7 +247,7 @@ h2 { margin: 4px 0 0; font-size: 18px; letter-spacing: -.025em; }
   .brand h1 { white-space: normal; }
   .header-actions { grid-column: 3; grid-row: 1; }
   .compact-stats { display: none; }
-  .workspace-grid { grid-template-columns: 260px minmax(0, 1fr); }
+  .workspace-grid { grid-template-columns: 360px minmax(0, 1fr); }
   .toolbar { flex-wrap: wrap; align-items: center; }
   .toolbar-title { min-width: 100%; }
   .route-map { height: 480px; }
@@ -264,7 +273,7 @@ h1 { font-size: clamp(24px, 2vw, 32px); }
 .toolbar { gap: 15px; padding: 11px 15px; }
 .toolbar-title h2 { font-size: 18px; }
 .field span { font-size: 11px; }
-.compact-field input, .compact-field select { height: 38px; font-size: 13px; }
+.compact-field input:not([type="checkbox"]), .compact-field select { height: 38px; font-size: 13px; }
 .toggle-field { height: 38px; font-size: 12px; }
 .workspace-grid { gap: 14px; }
 .sidebar { gap: 14px; }
