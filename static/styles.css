@@ -119,12 +119,19 @@ h2 { margin: 4px 0 0; font-size: 18px; letter-spacing: -.025em; }
 .bucket-search { display: block; margin: 0 17px 8px; }
 .bucket-search input { width: 100%; height: 30px; padding: 0 9px; border: 1px solid var(--line); border-radius: 8px; outline: none; color: var(--ink); background: #fff; font-size: 11px; }
 .bucket-search input:focus { border-color: var(--forest-2); box-shadow: 0 0 0 3px rgba(44,116,101,.1); }
+.bucket-controls { display: grid; grid-template-columns: minmax(0, 1fr) 84px; gap: 7px; margin: 0 17px 8px; }
+.bucket-controls .bucket-search { margin: 0; }
+.bucket-filter { display: grid; gap: 3px; min-width: 0; }
+.bucket-filter span { color: var(--muted); font-size: 9px; font-weight: 750; text-transform: uppercase; letter-spacing: .08em; }
+.bucket-filter select { width: 100%; height: 30px; padding: 0 5px; border: 1px solid var(--line); border-radius: 8px; outline: none; color: var(--ink); background: #fff; font-size: 10px; }
+.bucket-filter select:focus { border-color: var(--forest-2); box-shadow: 0 0 0 3px rgba(44,116,101,.1); }
 .count-pill { display: inline-grid; place-items: center; min-width: 28px; height: 24px; padding: 0 7px; color: var(--forest); background: #e7f3ed; border-radius: 999px; font-size: 11px; font-weight: 800; }
 .count-pill.warm { color: #a65b20; background: var(--warm-soft); }
 .bucket-dropzone { min-height: 0; flex: 1 1 auto; overflow-y: auto; margin: 0 10px 10px; padding: 6px; border: 1px dashed var(--line-strong); border-radius: 13px; background: var(--paper-soft); transition: .15s ease; }
 .bucket-dropzone.is-dragover, .route-drop.is-dragover { border-color: var(--forest-2); background: #f0faf4; box-shadow: inset 0 0 0 2px rgba(44,116,101,.08); }
 .bucket-empty { display: grid; place-items: center; min-height: 130px; padding: 20px; color: #94a39c; font-size: 11px; text-align: center; }
 .person-row, .household-row { display: flex; align-items: center; gap: 8px; padding: 9px 8px; margin: 3px 0; border: 1px solid transparent; border-radius: 10px; background: #fff; cursor: grab; }
+.household-row { display: grid; grid-template-columns: 28px minmax(0, 1fr) 82px auto; align-items: center; }
 .person-row:hover, .household-row:hover { border-color: var(--line); box-shadow: 0 3px 10px rgba(33, 62, 51, .06); }
 .person-row:active, .household-row:active { cursor: grabbing; }
 .avatar { width: 25px; height: 25px; display: grid; place-items: center; flex: 0 0 auto; color: var(--forest); background: #e4f0eb; border-radius: 8px; font-size: 10px; font-weight: 850; }
@@ -132,6 +139,11 @@ h2 { margin: 4px 0 0; font-size: 18px; letter-spacing: -.025em; }
 .row-copy { min-width: 0; flex: 1; }
 .row-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 750; }
 .row-meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 10px; margin-top: 2px; }
+.household-column-head { display: grid; grid-template-columns: 28px minmax(0, 1fr) 82px auto; align-items: center; gap: 9px; margin: 0 18px 4px; color: #8a9891; text-transform: uppercase; letter-spacing: .08em; font-size: 9px; font-weight: 800; }
+.household-column-head span:nth-child(3) { text-align: center; }
+.assign-cell { min-width: 0; }
+.assign-select { width: 100%; height: 28px; padding: 0 5px; border: 1px solid var(--line); border-radius: 6px; color: var(--ink); background: #fff; font-size: 10px; outline: none; }
+.assign-select:focus { border-color: var(--forest-2); box-shadow: 0 0 0 3px rgba(44,116,101,.1); }
 .diagram-wrap { min-height: 0; height: 100%; display: flex; flex-direction: column; overflow: hidden; }
 .diagram-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; padding: 19px 20px 15px; border-bottom: 1px solid var(--line); }
 .diagram-help { max-width: 650px; margin: 5px 0 0; color: var(--muted); font-size: 11px; }
@@ -170,6 +182,12 @@ h2 { margin: 4px 0 0; font-size: 18px; letter-spacing: -.025em; }
 .route-drop { min-height: 20px; padding: 1px; border: 1px dashed transparent; border-radius: 9px; transition: .15s ease; }
 .route-drop:empty { min-height: 32px; border-color: #e6ece7; }
 .route-drop:empty::after { content: "Drop here"; display: grid; place-items: center; min-height: 28px; color: #a9b4ad; font-size: 10px; }
+.diagram.is-person-dragging .route-drop { border-color: #c8d8ce; background: #fbfdfb; }
+.diagram.is-person-dragging .route-drop:not(:empty)[data-drop-kind="minister"]::before { content: "Drop minister here"; display: block; margin: 2px 4px 4px; color: #7f9188; font-size: 9px; font-weight: 700; text-align: center; }
+.diagram.is-person-dragging .route-drop:not(:empty)[data-drop-kind="household"]::before { content: "Drop household here"; display: block; margin: 2px 4px 4px; color: #7f9188; font-size: 9px; font-weight: 700; text-align: center; }
+.diagram.is-minister-dragging .route-drop[data-drop-kind="household"], .diagram.is-household-dragging .route-drop[data-drop-kind="minister"] { opacity: .35; border-color: #e4ebe6; background: #fff; }
+.diagram.is-person-dragging .route-card.is-locked .route-drop { border-color: #e2d9e9; background: #faf8fc; opacity: .6; }
+.diagram.is-person-dragging .route-drop.is-dragover { border-color: var(--forest-2); background: #f0faf4; box-shadow: inset 0 0 0 2px rgba(44,116,101,.08); }
 .route-row { margin: 2px 0; padding: 6px; background: #f7faf8; }
 .route-row .avatar { width: 22px; height: 22px; border-radius: 7px; }
 .route-row .row-name { font-size: 11px; }
@@ -312,3 +330,10 @@ h1 { font-size: clamp(24px, 2vw, 32px); }
 }
 .bucket-panel.is-panel-fullscreen > .bucket-dropzone,
 .bucket-panel:fullscreen > .bucket-dropzone { flex: 1 1 auto; inline-size: min(400px, calc(100% - 40px)); width: min(400px, calc(100% - 40px)); max-width: 400px; }
+.bucket-panel.is-panel-fullscreen > .household-column-head,
+.bucket-panel:fullscreen > .household-column-head { inline-size: min(400px, calc(100% - 40px)); width: min(400px, calc(100% - 40px)); max-width: 400px; margin-left: auto; margin-right: auto; }
+.bucket-panel.is-panel-fullscreen > .bucket-controls,
+.bucket-panel:fullscreen > .bucket-controls { inline-size: min(400px, calc(100% - 40px)); width: min(400px, calc(100% - 40px)); max-width: 400px; margin-left: auto; margin-right: auto; }
+.household-row { grid-template-columns: 28px minmax(0, 1fr) 72px auto; }
+.household-column-head { grid-template-columns: 28px minmax(0, 1fr) 72px auto; }
+.household-row .row-name { overflow: visible; text-overflow: clip; white-space: normal; line-height: 1.2; }

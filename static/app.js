@@ -8,6 +8,7 @@ const state = {
   unassignedMinisters: [],
   unassignedHouseholds: [],
   bucketViews: { minister: "not-ready", household: "not-ready" },
+  bucketFilters: { householdAssign: "all" },
   pdfLoaded: false,
   workbookLoaded: false,
   isDirty: false,
@@ -39,6 +40,7 @@ const els = {
   unassignedHouseholds: $("unassigned-households"),
   toast: $("toast"),
   modalBackdrop: $("modal-backdrop"),
+  modalTitle: $("modal-title"),
   modalCopy: $("modal-copy"),
   modalConfirm: $("modal-confirm"),
   modalCancel: $("modal-cancel"),
@@ -50,6 +52,7 @@ const els = {
   routeMap: $("route-map"),
   ministerSearch: $("minister-search"),
   householdSearch: $("household-search"),
+  householdAssignFilter: $("household-assign-filter"),
 };
 
 const uid = (prefix) => `${prefix}-${state.nextId++}-${Math.random().toString(36).slice(2, 7)}`;
@@ -84,9 +87,27 @@ function routeCount() { return state.districts.reduce((sum, district) => sum + d
 function allRoutes() { return state.districts.flatMap((district) => district.routes); }
 function allAssignedMinisters() { return allRoutes().flatMap((route) => route.ministers); }
 function allAssignedHouseholds() { return allRoutes().flatMap((route) => route.households); }
-function findRoute(routeId) { return allRoutes().find((route) => route.id === routeId); }
-function findDistrict(districtId) { return state.districts.find((district) => district.id === districtId); }
-function routeDistrict(routeId) { return state.districts.find((district) => district.routes.some((route) => route.id === routeId)); }
+function ensureStableRouteIds() {
+  const routeIds = new Set();
+  state.districts.forEach((district) => {
+    if (!district.id) district.id = uid("district");
+    district.routes.forEach((route) => {
+      const routeKey = clean(route.id);
+      if (!routeKey || routeIds.has(routeKey)) route.id = uid("route");
+      routeIds.add(clean(route.id));
+    });
+  });
+}
+function findRoute(routeId) {
+  const key = clean(routeId);
+  if (!key) return null;
+  const routeById = allRoutes().find((route) => clean(route.id) === key);
+  if (routeById) return routeById;
+  // Compatibility for older rendered workbooks that used the display name as the drop key.
+  return allRoutes().find((route) => clean(route.name) === key) || null;
+}
+function findDistrict(districtId) { const key = clean(districtId); return state.districts.find((district) => clean(district.id) === key); }
+function routeDistrict(routeId) { const key = clean(routeId); return state.districts.find((district) => district.routes.some((route) => clean(route.id) === key)); }
 function routeForItem(kind, itemId) {
   return allRoutes().find((route) => route[kind === "minister" ? "ministers" : "households"].some((item) => item.id === itemId));
 }
@@ -140,6 +161,7 @@ function visibleRoute(route, district) {
 }
 
 function render() {
+  ensureStableRouteIds();
   state.districts.forEach((district) => district.routes.forEach(refreshRouteName));
   updateStats();
   const hasData = Boolean(state.districts.length || state.unassignedMinisters.length || state.unassignedHouseholds.length);
@@ -149,15 +171,23 @@ function render() {
   renderDiagram();
 }
 
+const householdAssignmentValues = ["Must", "Should", "Nice", "No"];
+function assignmentSelectHtml(household) {
+  const current = householdAssignmentValues.includes(household.assign) ? household.assign : "";
+  return `<div class="assign-cell"><label class="visually-hidden" for="assign-${esc(household.id)}">Assign ${esc(household.name)}</label><select class="assign-select" id="assign-${esc(household.id)}" data-action="set-assign" data-id="${esc(household.id)}" aria-label="Assign ${esc(household.name)}"><option value="">—</option>${householdAssignmentValues.map((value) => `<option value="${value}" ${current === value ? "selected" : ""}>${value}</option>`).join("")}</select></div>`;
+}
+
 function personHtml(person, kind, options = {}) {
   const isHousehold = kind === "household";
   const meta = isHousehold ? "" : [person.age ? `Age ${person.age}` : "", person.address || ""].filter(Boolean).join(" · ");
   const moveButton = options.showMove ? `<button class="button-icon" title="Move to unassigned" data-action="move-unassigned" data-kind="${kind}" data-id="${esc(person.id)}">↗</button>` : "";
   const needsButton = isHousehold ? `<button class="button-icon needs-button ${person.highNeeds ? "is-active" : ""}" title="${person.highNeeds ? "Remove high needs flag" : "Mark high needs"}" data-action="toggle-needs" data-id="${esc(person.id)}">H</button>` : "";
   const readinessButton = options.bucket ? `<button class="button-icon readiness-button ${person.ready ? "is-ready" : ""}" title="${person.ready ? "Move back to not ready" : "Mark ready for assignment"}" data-action="toggle-ready" data-kind="${kind}" data-id="${esc(person.id)}">${person.ready ? "↶" : "✓"}</button>` : "";
+  const assignmentCell = isHousehold ? assignmentSelectHtml(person) : "";
   return `<div class="${isHousehold ? "household-row" : "person-row"} ${options.route ? "route-row" : ""}" draggable="true" data-drag-kind="${kind}" data-drag-id="${esc(person.id)}">
     <div class="avatar ${isHousehold ? "warm" : ""}">${initial(person.name)}</div>
     <div class="row-copy"><div class="row-name">${esc(person.name)}</div>${meta ? `<div class="row-meta">${esc(meta)}</div>` : ""}${isHousehold && person.members?.length ? `<div class="household-members">${esc(person.members.map(memberDisplayName).filter(Boolean).join(" · "))}</div>` : ""}</div>
+    ${assignmentCell}
     <div class="household-flags">${needsButton}${readinessButton}${moveButton}</div>
   </div>`;
 }
@@ -167,8 +197,9 @@ function renderBuckets() {
   const householdView = state.bucketViews.household;
   const ministerQuery = normalize(els.ministerSearch.value);
   const householdQuery = normalize(els.householdSearch.value);
+  const householdAssign = state.bucketFilters.householdAssign || "all";
   const ministers = state.unassignedMinisters.filter((person) => (ministerView === "ready" ? person.ready : !person.ready) && (!ministerQuery || [person.name, person.address, person.email].some((value) => matches(value, ministerQuery))));
-  const households = state.unassignedHouseholds.filter((household) => (householdView === "ready" ? household.ready : !household.ready) && (!householdQuery || [household.name, household.address, ...(household.members || []).map((member) => member.name)].some((value) => matches(value, householdQuery))));
+  const households = state.unassignedHouseholds.filter((household) => (householdView === "ready" ? household.ready : !household.ready) && (householdAssign === "all" || householdAssign === (household.assign || "none")) && (!householdQuery || [household.name, household.address, ...(household.members || []).map((member) => member.name)].some((value) => matches(value, householdQuery))));
   els.unassignedMinisters.innerHTML = ministers.length ? ministers.map((person) => personHtml(person, "minister", { bucket: true })).join("") : `<div class="bucket-empty">${ministerView === "ready" ? "No ministers are ready yet." : "No ministers are waiting for review."}</div>`;
   els.unassignedHouseholds.innerHTML = households.length ? households.map((household) => personHtml(household, "household", { bucket: true })).join("") : `<div class="bucket-empty">${householdView === "ready" ? "No households are ready yet." : "No households are waiting for review."}</div>`;
   document.querySelectorAll("[data-bucket-tab]").forEach((button) => {
@@ -180,11 +211,13 @@ function renderBuckets() {
   document.querySelectorAll("#unassigned-ministers [data-action], #unassigned-households [data-action]").forEach((button) => {
     if (button.dataset.actionBound === "true") return;
     button.dataset.actionBound = "true";
-    button.addEventListener("click", handleAction);
+    button.addEventListener(button.dataset.action === "set-assign" ? "change" : "click", handleAction);
   });
+  bindPersonDragEvents();
   for (const zone of [els.unassignedMinisters, els.unassignedHouseholds]) bindDropZone(zone, zone.dataset.dropKind);
   bindBucketPanel($("unassigned-ministers-panel"), "minister");
   bindBucketPanel($("unassigned-households-panel"), "household");
+  els.householdAssignFilter.value = householdAssign;
 }
 
 function renderDiagram() {
@@ -206,13 +239,13 @@ function routeHtml(route) {
   const locked = route.locked;
   return `<article class="route-card ${locked ? "is-locked" : ""}" draggable="${locked ? "false" : "true"}" data-route-id="${esc(route.id)}">
     <div class="route-head"><div class="route-label"><span class="route-grip">⋮⋮</span><div><div class="route-name">${esc(route.name)}</div><div class="route-sub">${route.ministers.length} ministers · ${route.households.length} households</div></div></div><div class="route-actions"><button class="button-icon" title="View route map" data-action="route-map" data-route-id="${esc(route.id)}">🗺️</button><button class="button-icon lock-button ${locked ? "is-locked" : ""}" title="${locked ? "Unlock route" : "Lock route"}" data-action="toggle-lock" data-route-id="${esc(route.id)}"><span class="lock-glyph" aria-hidden="true"></span></button><button class="button-icon" title="Dissolve route" data-action="dissolve" data-route-id="${esc(route.id)}">⊗</button></div></div>
-    <div class="route-body"><div class="route-section-label"><span>Ministers</span><span>${locked ? "locked" : "drag to move"}</span></div><div class="route-drop" data-route-drop="${esc(route.id)}" data-drop-kind="minister">${route.ministers.map((person) => personHtml(person, "minister", { route: true, showMove: true })).join("")}</div><div class="route-section-label"><span>Households</span><span>${route.households.length} assigned</span></div><div class="route-drop" data-route-drop="${esc(route.id)}" data-drop-kind="household">${sortedHouseholds.map((household) => personHtml(household, "household", { route: true, showMove: true })).join("")}</div></div>
+    <div class="route-body"><div class="route-section-label"><span>Ministers</span><span>${locked ? "locked" : "drag to move"}</span></div><div class="route-drop" data-route-drop="${esc(route.id)}" data-route-id="${esc(route.id)}" data-drop-kind="minister">${route.ministers.map((person) => personHtml(person, "minister", { route: true, showMove: true })).join("")}</div><div class="route-section-label"><span>Households</span><span>${route.households.length} assigned</span></div><div class="household-column-head"><span></span><span>Household</span><span>assign</span><span></span></div><div class="route-drop" data-route-drop="${esc(route.id)}" data-route-id="${esc(route.id)}" data-drop-kind="household">${sortedHouseholds.map((household) => personHtml(household, "household", { route: true, showMove: true })).join("")}</div></div>
   </article>`;
 }
 
 function bindDiagramEvents() {
-  document.querySelectorAll(".diagram [data-action]").forEach((button) => button.addEventListener("click", handleAction));
-  document.querySelectorAll("[data-drag-kind]").forEach((element) => element.addEventListener("dragstart", handleDragStart));
+  document.querySelectorAll(".diagram [data-action]").forEach((button) => button.addEventListener(button.dataset.action === "set-assign" ? "change" : "click", handleAction));
+  bindPersonDragEvents();
   document.querySelectorAll(".route-card[data-route-id]").forEach((element) => {
     element.addEventListener("dragstart", (event) => {
       if (event.target.closest("[data-drag-kind], button")) return;
@@ -243,20 +276,45 @@ function bindDiagramEvents() {
     zone.addEventListener("dragover", acceptRouteDrag);
     zone.addEventListener("dragleave", () => visualTarget?.classList.remove("is-dragover"));
     zone.addEventListener("drop", (event) => {
+      const data = parseDrag(event);
+      if (data.kind !== "route") return;
       event.preventDefault();
       visualTarget?.classList.remove("is-dragover");
-      moveDroppedItem(parseDrag(event), zone.dataset.districtDrop);
+      moveDroppedItem(data, zone.dataset.districtDrop);
     });
+  });
+}
+
+function bindPersonDragEvents() {
+  document.querySelectorAll("[data-drag-kind]").forEach((element) => {
+    if (element.dataset.dragBound === "true") return;
+    element.dataset.dragBound = "true";
+    element.addEventListener("dragstart", handleDragStart);
+    element.addEventListener("dragend", handlePersonDragEnd);
   });
 }
 
 function bindDropZone(zone, acceptedKind) {
   if (zone.dataset.dropBound === "true") return;
   zone.dataset.dropBound = "true";
-  const dropTarget = zone.dataset.routeDrop || "unassigned";
+  const getDropTarget = () => zone.dataset.routeId || zone.dataset.routeDrop || zone.closest("[data-route-id]")?.dataset.routeId || "unassigned";
   zone.addEventListener("dragover", (event) => { const data = parseDrag(event); if (data.kind === acceptedKind) { event.preventDefault(); zone.classList.add("is-dragover"); } });
   zone.addEventListener("dragleave", () => zone.classList.remove("is-dragover"));
-  zone.addEventListener("drop", (event) => { event.preventDefault(); zone.classList.remove("is-dragover"); const data = parseDrag(event); if (data.kind === acceptedKind) moveDroppedItem(data, dropTarget, dropTarget === "unassigned" ? state.bucketViews[acceptedKind] === "ready" : null); });
+  zone.addEventListener("drop", (event) => {
+    event.preventDefault();
+    zone.classList.remove("is-dragover");
+    const data = parseDrag(event);
+    const dropTarget = getDropTarget();
+    console.info("[dragdrop] drop", JSON.stringify({
+      acceptedKind,
+      data,
+      dropTarget,
+      zoneRouteId: zone.dataset.routeId || "",
+      zoneRouteDrop: zone.dataset.routeDrop || "",
+      cardRouteId: zone.closest(".route-card")?.dataset.routeId || "",
+    }, null, 2));
+    if (data.kind === acceptedKind) moveDroppedItem(data, dropTarget, dropTarget === "unassigned" ? true : null);
+  });
 }
 
 function bindBucketPanel(panel, acceptedKind) {
@@ -273,7 +331,7 @@ function bindBucketPanel(panel, acceptedKind) {
     event.preventDefault();
     panel.classList.remove("is-dragover");
     const data = parseDrag(event);
-    if (data.kind === acceptedKind) moveDroppedItem(data, "unassigned", state.bucketViews[acceptedKind] === "ready");
+    if (data.kind === acceptedKind) moveDroppedItem(data, "unassigned", true);
   });
 }
 
@@ -289,6 +347,14 @@ function handleDragStart(event) {
   activeDrag = { kind: element.dataset.dragKind, id: element.dataset.dragId };
   event.dataTransfer.effectAllowed = "move";
   event.dataTransfer.setData("text/plain", JSON.stringify(activeDrag));
+  els.diagram.classList.add("is-person-dragging", `is-${activeDrag.kind}-dragging`);
+}
+
+function handlePersonDragEnd() {
+  if (activeDrag?.kind === "route") return;
+  activeDrag = null;
+  els.diagram.classList.remove("is-person-dragging", "is-minister-dragging", "is-household-dragging");
+  document.querySelectorAll(".route-drop.is-dragover, .bucket-dropzone.is-dragover, .bucket-panel.is-dragover").forEach((target) => target.classList.remove("is-dragover"));
 }
 
 function removeItemFromRoute(kind, id) {
@@ -317,7 +383,18 @@ function moveDroppedItem(data, target, targetReady = null) {
     return;
   }
   const destinationRoute = target === "unassigned" ? null : findRoute(target);
+  console.debug("[dragdrop] destination lookup", JSON.stringify({
+    data,
+    target,
+    destinationRoute: destinationRoute ? { id: destinationRoute.id, name: destinationRoute.name } : null,
+    routes: allRoutes().map((route) => ({ id: route.id, name: route.name })),
+  }, null, 2));
   if (target !== "unassigned" && !destinationRoute) {
+    console.error("[dragdrop] destination route not found", JSON.stringify({
+      target,
+      data,
+      routes: allRoutes().map((route) => ({ id: route.id, name: route.name })),
+    }, null, 2));
     toast("That route is no longer available. Refresh the board and try again.", "error");
     return;
   }
@@ -354,6 +431,10 @@ function handleAction(event) {
   event.stopPropagation();
   const action = event.currentTarget.dataset.action;
   if (action === "move-unassigned") moveDroppedItem({ kind: event.currentTarget.dataset.kind, id: event.currentTarget.dataset.id }, "unassigned");
+  if (action === "set-assign") {
+    const household = allAssignedHouseholds().find((item) => item.id === event.currentTarget.dataset.id) || state.unassignedHouseholds.find((item) => item.id === event.currentTarget.dataset.id);
+    if (household) { household.assign = event.currentTarget.value; markDirty(); render(); }
+  }
   if (action === "toggle-needs") {
     const household = allAssignedHouseholds().find((item) => item.id === event.currentTarget.dataset.id) || state.unassignedHouseholds.find((item) => item.id === event.currentTarget.dataset.id);
     if (household) { household.highNeeds = !household.highNeeds; markDirty(); render(); }
@@ -374,12 +455,21 @@ function handleAction(event) {
 function openDissolve(route) {
   if (!route) return;
   if (route.locked) { toast("That route is locked. Unlock it before dissolving it.", "error"); return; }
+  els.modalTitle.textContent = "Dissolve route?";
   els.modalCopy.textContent = `This will move ${route.ministers.length} minister${route.ministers.length === 1 ? "" : "s"} and ${route.households.length} household${route.households.length === 1 ? "" : "s"} into the ready-to-assign buckets.`;
   els.modalBackdrop.classList.remove("hidden");
+  els.modalConfirm.textContent = "Dissolve route";
   const confirm = () => { route.ministers.forEach((item) => { item.ready = true; }); route.households.forEach((item) => { item.ready = true; }); state.unassignedMinisters.push(...route.ministers); state.unassignedHouseholds.push(...route.households); const district = routeDistrict(route.id); district.routes = district.routes.filter((candidate) => candidate.id !== route.id); markDirty(); closeModal(); toast(`${route.name} dissolved.`); render(); };
   els.modalConfirm.onclick = confirm;
 }
-function closeModal() { els.modalBackdrop.classList.add("hidden"); els.modalConfirm.onclick = null; }
+function openClearWorkspace() {
+  els.modalTitle.textContent = "Clear workspace?";
+  els.modalCopy.textContent = "This will remove the loaded assignments, unassigned lists, and any unsaved changes from the workspace.";
+  els.modalConfirm.textContent = "Clear workspace";
+  els.modalBackdrop.classList.remove("hidden");
+  els.modalConfirm.onclick = () => { resetWorkspace(); closeModal(); };
+}
+function closeModal() { els.modalBackdrop.classList.add("hidden"); els.modalConfirm.onclick = null; els.modalTitle.textContent = "Dissolve route?"; els.modalConfirm.textContent = "Dissolve route"; }
 
 async function togglePanelFullscreen(panelId) {
   const panel = $(panelId);
@@ -527,7 +617,7 @@ function parseHouseholdCard(group) {
   const lines = group.map((line) => line.text).filter(Boolean);
   const email = lines.find((line) => /@/.test(line)) || "";
   const phone = lines.find(parsePhone) || "";
-  return { id: uid("household"), name: lines[0] || "Unnamed household", phone, email, address: parseAddress(lines.slice(1)), members: [], highNeeds: false, ready: true, source: "pdf" };
+  return { id: uid("household"), name: lines[0] || "Unnamed household", phone, email, address: parseAddress(lines.slice(1)), members: [], assign: "", highNeeds: false, ready: true, source: "pdf" };
 }
 function parseMemberLines(lines, householdCards) {
   const members = [];
@@ -602,7 +692,7 @@ function parseWorkbook(file) {
     const progressSheet = workbook.Sheets[workbook.SheetNames.find((name) => normalize(name) === "progress") || ""];
     if (progressSheet) {
       const progressRows = spreadsheetLib.utils.sheet_to_json(progressSheet, { header: 1, defval: "" });
-      const serialized = progressRows[1]?.[0] || progressRows[0]?.[0] || "";
+      const serialized = progressRows.slice(1).map((row) => row[0] || "").join("") || progressRows[0]?.[0] || "";
       try {
         const savedState = JSON.parse(serialized);
         if (savedState && Array.isArray(savedState.districts) && Array.isArray(savedState.unassignedMinisters) && Array.isArray(savedState.unassignedHouseholds)) {
@@ -621,13 +711,13 @@ function parseWorkbook(file) {
       const restored = restoreFromAssignmentsSheet(assignmentRows);
       if (restored) {
         restored.unassignedMinisters = ministersSheet ? spreadsheetLib.utils.sheet_to_json(workbook.Sheets[ministersSheet], { defval: "" }).map((row) => ({ id: uid("minister"), name: clean(rowValue(row, ["name", "minister"])), age: clean(rowValue(row, ["age"])), address: clean(rowValue(row, ["address"])), ready: parseReady(rowValue(row, ["ready", "is ready"])), source: "saved-workbook" })).filter((item) => item.name) : [];
-        restored.unassignedHouseholds = householdsSheet ? spreadsheetLib.utils.sheet_to_json(workbook.Sheets[householdsSheet], { defval: "" }).map((row) => ({ id: uid("household"), name: clean(rowValue(row, ["name", "household"])), address: clean(rowValue(row, ["address"])), members: [], highNeeds: parseReady(rowValue(row, ["highneeds", "high needs"])), ready: parseReady(rowValue(row, ["ready", "is ready"])), source: "saved-workbook" })).filter((item) => item.name) : [];
+        restored.unassignedHouseholds = householdsSheet ? spreadsheetLib.utils.sheet_to_json(workbook.Sheets[householdsSheet], { defval: "" }).map((row) => ({ id: uid("household"), name: clean(rowValue(row, ["name", "household"])), address: clean(rowValue(row, ["address"])), members: [], assign: clean(rowValue(row, ["assign", "assignment"])), highNeeds: parseReady(rowValue(row, ["highneeds", "high needs"])), ready: parseReady(rowValue(row, ["ready", "is ready"])), source: "saved-workbook" })).filter((item) => item.name) : [];
         return { savedState: restored, sheetNames: workbook.SheetNames };
       }
     }
     if (!ministersSheet && !householdsSheet) throw new Error("Workbook needs Unassigned Ministers and/or Unassigned Households tabs.");
     const ministers = ministersSheet ? spreadsheetLib.utils.sheet_to_json(workbook.Sheets[ministersSheet], { defval: "" }).map((row) => ({ id: uid("minister"), name: clean(rowValue(row, ["name", "minister"])), age: clean(rowValue(row, ["age"])), address: clean(rowValue(row, ["address"])), ready: parseReady(rowValue(row, ["ready", "is ready"])), source: "workbook" })).filter((item) => item.name) : [];
-    const households = householdsSheet ? spreadsheetLib.utils.sheet_to_json(workbook.Sheets[householdsSheet], { defval: "" }).map((row) => ({ id: uid("household"), name: clean(rowValue(row, ["name", "household"])), address: clean(rowValue(row, ["address"])), members: [], highNeeds: parseReady(rowValue(row, ["highneeds", "high needs"])), ready: parseReady(rowValue(row, ["ready", "is ready"])), source: "workbook" })).filter((item) => item.name) : [];
+    const households = householdsSheet ? spreadsheetLib.utils.sheet_to_json(workbook.Sheets[householdsSheet], { defval: "" }).map((row) => ({ id: uid("household"), name: clean(rowValue(row, ["name", "household"])), address: clean(rowValue(row, ["address"])), members: [], assign: clean(rowValue(row, ["assign", "assignment"])), highNeeds: parseReady(rowValue(row, ["highneeds", "high needs"])), ready: parseReady(rowValue(row, ["ready", "is ready"])), source: "workbook" })).filter((item) => item.name) : [];
     return { ministers, households, sheetNames: workbook.SheetNames };
   });
 }
@@ -651,9 +741,10 @@ function restoreFromAssignmentsSheet(rows) {
       districts.push(district);
     }
     const district = districtMap.get(districtName);
-    const routeKey = `${districtName}::${routeName}`;
+    const routeId = clean(rowValue(row, ["routeid", "route id"]));
+    const routeKey = routeId || `${districtName}::${routeName}`;
     if (!routeMap.has(routeKey)) {
-      const route = { id: uid("route"), name: routeName, locked: parseReady(rowValue(row, ["locked"])), ministers: [], households: [] };
+      const route = { id: routeId || uid("route"), name: routeName, locked: parseReady(rowValue(row, ["locked"])), ministers: [], households: [] };
       routeMap.set(routeKey, route);
       district.routes.push(route);
     }
@@ -663,7 +754,7 @@ function restoreFromAssignmentsSheet(rows) {
       if (!route.ministers.some((minister) => normalize(minister.name) === normalize(name))) route.ministers.push({ id: uid("minister"), name, address: "", ready: true, source: "saved-workbook" });
     }
     const householdName = clean(rowValue(row, ["household"]));
-    if (householdName) route.households.push({ id: uid("household"), name: householdName, address: clean(rowValue(row, ["address"])), highNeeds: parseReady(rowValue(row, ["highneeds", "high needs"])), ready: true, members: clean(rowValue(row, ["householdmembers", "household members"])).split(" | ").map((name) => ({ name, gender: "", birthday: "" })).filter((member) => member.name), source: "saved-workbook" });
+    if (householdName) route.households.push({ id: uid("household"), name: householdName, address: clean(rowValue(row, ["address"])), assign: clean(rowValue(row, ["assign", "assignment"])), highNeeds: parseReady(rowValue(row, ["highneeds", "high needs"])), ready: true, members: clean(rowValue(row, ["householdmembers", "household members"])).split(" | ").map((name) => ({ name, gender: "", birthday: "" })).filter((member) => member.name), source: "saved-workbook" });
   }
   districts.forEach((district) => district.routes.forEach(refreshRouteName));
   return { version: 1, districts, unassignedMinisters: [], unassignedHouseholds: [], bucketViews: { minister: "not-ready", household: "not-ready" }, filters: { search: "", district: "all", households: [], householdsAny: true, sort: "name", showEmpty: false } };
@@ -675,6 +766,7 @@ function restoreSavedState(savedState) {
   state.unassignedMinisters = savedState.unassignedMinisters || [];
   state.unassignedHouseholds = savedState.unassignedHouseholds || [];
   state.bucketViews = { minister: "not-ready", household: "not-ready", ...(savedState.bucketViews || {}) };
+  state.bucketFilters = { householdAssign: "all", ...(savedState.bucketFilters || {}) };
   const savedFilters = savedState.filters || {};
   state.filters = { search: "", district: "all", households: [], householdsAny: true, sort: "name", showEmpty: false, ...savedFilters };
   state.filters.households = householdFilterValues(state.filters.households);
@@ -683,6 +775,7 @@ function restoreSavedState(savedState) {
   syncHouseholdFilterControl();
   els.householdSort.value = state.filters.sort;
   els.showEmpty.checked = state.filters.showEmpty;
+  els.householdAssignFilter.value = state.bucketFilters.householdAssign;
   state.pdfLoaded = state.districts.length > 0;
   state.isDirty = false;
   updateSaveStatus();
@@ -704,29 +797,135 @@ async function handleWorkbook(file) {
   catch (error) { console.error(error); els.xlsxStatus.textContent = "Could not read this workbook"; toast(error.message || "Workbook import failed.", "error"); }
 }
 
+function styleExportSheet(sheet, options = {}) {
+  if (!sheet["!ref"]) return;
+  const range = spreadsheetLib.utils.decode_range(sheet["!ref"]);
+  const headerFill = "1F4D43";
+  const bodyFill = "FFFFFF";
+  const stripeFill = "F2F7F4";
+  const borderColor = "D9E5DE";
+  const headerStyle = {
+    fill: { patternType: "solid", fgColor: { rgb: headerFill } },
+    font: { name: "Arial", sz: 10, bold: true, color: { rgb: "FFFFFF" } },
+    alignment: { horizontal: "center", vertical: "center", wrapText: true },
+    border: { bottom: { style: "medium", color: { rgb: "173A32" } } },
+  };
+  const baseBodyStyle = {
+    font: { name: "Arial", sz: 10, color: { rgb: "20332D" } },
+    alignment: { vertical: "center" },
+    border: { bottom: { style: "thin", color: { rgb: borderColor } } },
+  };
+  for (let column = range.s.c; column <= range.e.c; column += 1) {
+    const address = spreadsheetLib.utils.encode_cell({ r: 0, c: column });
+    const cell = sheet[address] || { t: "s", v: "" };
+    cell.s = headerStyle;
+    sheet[address] = cell;
+  }
+  for (let row = 1; row <= range.e.r; row += 1) {
+    for (let column = range.s.c; column <= range.e.c; column += 1) {
+      const address = spreadsheetLib.utils.encode_cell({ r: row, c: column });
+      const cell = sheet[address];
+      if (!cell) continue;
+      const fill = row % 2 === 0 ? stripeFill : bodyFill;
+      cell.s = { ...baseBodyStyle, fill: { patternType: "solid", fgColor: { rgb: fill } } };
+      if (options.centerColumns?.includes(column)) cell.s.alignment = { horizontal: "center", vertical: "center" };
+      if (column === options.assignColumn) {
+        const statusColors = { Must: "FCE4E4", Should: "FFF1D6", Nice: "E5F3EB", No: "ECEFF1" };
+        const statusColor = statusColors[String(cell.v || "")];
+        if (statusColor) cell.s.fill = { patternType: "solid", fgColor: { rgb: statusColor } };
+      }
+      if (options.yesNoColumns?.includes(column)) {
+        const value = String(cell.v || "").toLowerCase();
+        if (value === "yes") cell.s.fill = { patternType: "solid", fgColor: { rgb: "E5F3EB" } };
+        if (value === "no") cell.s.fill = { patternType: "solid", fgColor: { rgb: "ECEFF1" } };
+      }
+      if (column === options.highNeedsColumn && String(cell.v || "").toLowerCase() === "yes") {
+        cell.s.fill = { patternType: "solid", fgColor: { rgb: "FCE4E4" } };
+        cell.s.font = { name: "Arial", sz: 10, bold: true, color: { rgb: "A52A2A" } };
+      }
+    }
+  }
+  sheet["!cols"] = (options.widths || []).map((wch, index) => ({ wch, ...(options.hiddenColumns?.includes(index) ? { hidden: true } : {}) }));
+  sheet["!rows"] = Array.from({ length: range.e.r + 1 }, (_, row) => ({ hpt: row === 0 ? 25 : 21 }));
+  sheet["!autofilter"] = { ref: spreadsheetLib.utils.encode_range(range) };
+  sheet["!freeze"] = { xSplit: 0, ySplit: 1, topLeftCell: "A2", activePane: "bottomRight", state: "frozen" };
+  if (options.tabColor) sheet["!tabColor"] = { rgb: options.tabColor };
+}
+
+function saveWorkbookFile(workbook) {
+  try {
+    const bytes = spreadsheetLib.write(workbook, { bookType: "xlsx", type: "array", cellStyles: true });
+    const blob = new Blob([bytes], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "ministering-progress.xlsx";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    return true;
+  } catch (error) {
+    console.error("Workbook export failed", error);
+    toast(error.message || "Could not create the progress workbook.", "error");
+    return false;
+  }
+}
+
 function downloadWorkbook() {
   if (!state.districts.length && !state.unassignedMinisters.length && !state.unassignedHouseholds.length) { toast("Load data before exporting.", "error"); return; }
   const assignmentRows = allRoutes().flatMap((route) => {
     const district = routeDistrict(route.id)?.name || "";
     const households = route.households.length ? route.households : [{ name: "", address: "", highNeeds: false, members: [] }];
-    return households.map((household) => ({ District: district, Route: route.name, Locked: route.locked ? "Yes" : "No", Ministers: route.ministers.map((minister) => minister.name).join(" & "), Household: household.name, Address: household.address || "", HighNeeds: household.highNeeds ? "Yes" : "No", HouseholdMembers: (household.members || []).map((member) => member.name).join(" | ") }));
+    return households.map((household) => ({ District: district, Route: route.name, Locked: route.locked ? "Yes" : "No", Ministers: route.ministers.map((minister) => minister.name).join(" & "), Household: household.name, Assign: household.assign || "", Address: household.address || "", HighNeeds: household.highNeeds ? "Yes" : "No", HouseholdMembers: (household.members || []).map((member) => member.name).join(" | "), RouteId: route.id }));
   });
   const ministerRows = state.unassignedMinisters.map((minister) => ({ Name: minister.name, Age: minister.age || "", Address: minister.address || "", Ready: minister.ready ? "Yes" : "No" }));
-  const householdRows = state.unassignedHouseholds.map((household) => ({ Name: household.name, Address: household.address || "", HighNeeds: household.highNeeds ? "Yes" : "No", Ready: household.ready ? "Yes" : "No" }));
+  const householdRows = state.unassignedHouseholds.map((household) => ({ Name: household.name, Assign: household.assign || "", Address: household.address || "", HighNeeds: household.highNeeds ? "Yes" : "No", Ready: household.ready ? "Yes" : "No" }));
   const workbook = spreadsheetLib.utils.book_new();
-  spreadsheetLib.utils.book_append_sheet(workbook, spreadsheetLib.utils.json_to_sheet(assignmentRows), "Assignments");
-  spreadsheetLib.utils.book_append_sheet(workbook, spreadsheetLib.utils.json_to_sheet(ministerRows), "Unassigned Ministers");
-  spreadsheetLib.utils.book_append_sheet(workbook, spreadsheetLib.utils.json_to_sheet(householdRows), "Unassigned Households");
+  spreadsheetLib.utils.book_append_sheet(workbook, spreadsheetLib.utils.json_to_sheet(assignmentRows, { header: ["District", "Route", "Locked", "Ministers", "Household", "Assign", "Address", "HighNeeds", "HouseholdMembers", "RouteId"] }), "Assignments");
+  spreadsheetLib.utils.book_append_sheet(workbook, spreadsheetLib.utils.json_to_sheet(ministerRows, { header: ["Name", "Age", "Address", "Ready"] }), "Unassigned Ministers");
+  spreadsheetLib.utils.book_append_sheet(workbook, spreadsheetLib.utils.json_to_sheet(householdRows, { header: ["Name", "Assign", "Address", "HighNeeds", "Ready"] }), "Unassigned Households");
   const savedState = {
     version: 1,
     districts: state.districts,
     unassignedMinisters: state.unassignedMinisters,
     unassignedHouseholds: state.unassignedHouseholds,
     bucketViews: state.bucketViews,
+    bucketFilters: state.bucketFilters,
     filters: state.filters,
   };
-  spreadsheetLib.utils.book_append_sheet(workbook, spreadsheetLib.utils.json_to_sheet([{ State: JSON.stringify(savedState) }]), "Progress");
-  spreadsheetLib.writeFile(workbook, "ministering-progress.xlsx");
+  const serializedState = JSON.stringify(savedState);
+  const progressRows = [];
+  for (let index = 0; index < serializedState.length; index += 30000) progressRows.push({ State: serializedState.slice(index, index + 30000) });
+  spreadsheetLib.utils.book_append_sheet(workbook, spreadsheetLib.utils.json_to_sheet(progressRows), "Progress");
+  styleExportSheet(workbook.Sheets.Assignments, {
+    widths: [15, 26, 10, 34, 26, 12, 34, 12, 48, 24],
+    centerColumns: [2, 5, 7],
+    assignColumn: 5,
+    highNeedsColumn: 7,
+    yesNoColumns: [2, 7],
+    hiddenColumns: [9],
+    tabColor: "1F4D43",
+  });
+  styleExportSheet(workbook.Sheets["Unassigned Ministers"], {
+    widths: [32, 8, 36, 12],
+    centerColumns: [1, 3],
+    yesNoColumns: [3],
+    tabColor: "547A69",
+  });
+  styleExportSheet(workbook.Sheets["Unassigned Households"], {
+    widths: [36, 12, 36, 12, 12],
+    centerColumns: [1, 3, 4],
+    assignColumn: 1,
+    highNeedsColumn: 3,
+    yesNoColumns: [3, 4],
+    tabColor: "C28A46",
+  });
+  styleExportSheet(workbook.Sheets.Progress, {
+    widths: [36],
+    tabColor: "8A9891",
+  });
+  if (!saveWorkbookFile(workbook)) return;
   state.isDirty = false;
   updateSaveStatus();
   toast("Progress saved to workbook.");
@@ -742,7 +941,7 @@ bindFileDrop(els.xlsxDropzone, els.xlsxInput, handleWorkbook);
 $("load-progress-button").addEventListener("click", () => els.progressInput.click());
 els.progressInput.addEventListener("change", () => { if (els.progressInput.files[0]) handleWorkbook(els.progressInput.files[0]); });
 $("export-button").addEventListener("click", downloadWorkbook);
-$("reset-button").addEventListener("click", resetWorkspace);
+$("reset-button").addEventListener("click", openClearWorkspace);
 els.search.addEventListener("input", () => { state.filters.search = els.search.value; renderDiagram(); });
 els.district.addEventListener("change", () => { state.filters.district = els.district.value; renderDiagram(); });
 els.householdFilterButton.addEventListener("click", () => {
@@ -777,6 +976,7 @@ els.mapClose.addEventListener("click", closeMap);
 els.mapBackdrop.addEventListener("click", (event) => { if (event.target === els.mapBackdrop) closeMap(); });
 els.ministerSearch.addEventListener("input", renderBuckets);
 els.householdSearch.addEventListener("input", renderBuckets);
+els.householdAssignFilter.addEventListener("change", () => { state.bucketFilters.householdAssign = els.householdAssignFilter.value; renderBuckets(); });
 document.querySelectorAll("[data-panel-fullscreen]").forEach((button) => button.addEventListener("click", () => togglePanelFullscreen(button.dataset.panelFullscreen)));
 document.addEventListener("fullscreenchange", updatePanelFullscreenButtons);
 document.addEventListener("keydown", (event) => { if (event.key === "Escape" && document.fullscreenElement) document.exitFullscreen().catch(() => {}); });

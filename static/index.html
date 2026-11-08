@@ -118,7 +118,11 @@
               <button class="bucket-tab" data-bucket-tab="household" data-bucket-view="ready" type="button">Ready <span id="household-ready-count">0</span></button>
             </div>
             <p class="panel-note">Review the list, then mark households ready before placing them on a route.</p>
-            <label class="bucket-search"><span class="visually-hidden">Search households</span><input id="household-search" type="search" placeholder="Search households"></label>
+            <div class="bucket-controls">
+              <label class="bucket-search"><span class="visually-hidden">Search households</span><input id="household-search" type="search" placeholder="Search households"></label>
+              <label class="bucket-filter"><span>assign</span><select id="household-assign-filter"><option value="all">All</option><option value="Must">Must</option><option value="Should">Should</option><option value="Nice">Nice</option><option value="No">No</option><option value="none">Not set</option></select></label>
+            </div>
+            <div class="household-column-head"><span></span><span>Household</span><span>assign</span><span></span></div>
             <div class="bucket-dropzone" id="unassigned-households" data-drop-kind="household"></div>
           </section>
         </aside>
@@ -161,8 +165,8 @@
       </div>
     </div>
     <script src="/vendor/leaflet/dist/leaflet.js"></script>
-    <script src="/vendor/xlsx/dist/xlsx.full.min.js"></script>
+    <script src="/vendor/xlsx-js-style/dist/xlsx.bundle.js"></script>
     <input id="progress-input" class="visually-hidden" type="file" accept=".xlsx,.xls">
-    <script type="module" src="/app.js"></script>
+    <script type="module" src="/app.js?v=route-drop-fix"></script>
   </body>
 </html>
