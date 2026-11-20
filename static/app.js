@@ -42,6 +42,7 @@ const els = {
   modalBackdrop: $("modal-backdrop"),
   modalTitle: $("modal-title"),
   modalCopy: $("modal-copy"),
+  modalEditor: $("modal-editor"),
   modalConfirm: $("modal-confirm"),
   modalCancel: $("modal-cancel"),
   mapBackdrop: $("map-backdrop"),
@@ -74,6 +75,11 @@ function lastNameDisplay(value) {
   return name.includes(",") ? clean(name.split(",")[0]) : clean(name.split(/\s+/).pop());
 }
 function firstInitialDisplay(value) { const initial = givenNameDisplay(value).charAt(0).toUpperCase(); return initial ? `${initial}.` : ""; }
+function householdFirstNamesDisplay(household) {
+  const memberNames = (household.members || []).map(givenNameDisplay).filter(Boolean);
+  if (memberNames.length) return memberNames.join(" · ");
+  return givenNameDisplay(household.name);
+}
 function uiHeadingName(person, kind) {
   if (kind === "household") {
     const lastName = lastNameDisplay(person.name);
@@ -210,7 +216,7 @@ function personHtml(person, kind, options = {}) {
   const assignmentCell = isHousehold ? assignmentSelectHtml(person) : "";
   return `<div class="${isHousehold ? "household-row" : "person-row"} ${options.route ? "route-row" : ""}" draggable="true" data-drag-kind="${kind}" data-drag-id="${esc(person.id)}">
     <div class="avatar ${isHousehold ? "warm" : ""}">${initial(displayName)}</div>
-    <div class="row-copy"><div class="row-name">${esc(displayName)}</div>${meta ? `<div class="row-meta">${esc(meta)}</div>` : ""}${isHousehold && person.members?.length ? `<div class="household-members">${esc(person.members.map(givenNameDisplay).filter(Boolean).join(" · "))}</div>` : ""}</div>
+    <div class="row-copy"><div class="row-name">${esc(displayName)}</div>${meta ? `<div class="row-meta">${esc(meta)}</div>` : ""}${isHousehold && householdFirstNamesDisplay(person) ? `<div class="household-members">${esc(householdFirstNamesDisplay(person))}</div>` : ""}</div>
     ${assignmentCell}
     <div class="household-flags">${needsButton}${readinessButton}${moveButton}</div>
   </div>`;
@@ -282,7 +288,8 @@ function routeHtml(route) {
   const sortedHouseholds = [...route.households].sort((a, b) => state.filters.sort === "needs" ? Number(b.highNeeds) - Number(a.highNeeds) || normalize(a.name).localeCompare(normalize(b.name)) : normalize(a.name).localeCompare(normalize(b.name)));
   const locked = route.locked;
   return `<article class="route-card ${locked ? "is-locked" : ""}" draggable="${locked ? "false" : "true"}" data-route-id="${esc(route.id)}">
-    <div class="route-head"><div class="route-label"><span class="route-grip">⋮⋮</span><div><div class="route-name">${esc(route.name)}</div><div class="route-sub">${route.ministers.length} ministers · ${route.households.length} households</div></div></div><div class="route-actions"><button class="button-icon" title="View route map" data-action="route-map" data-route-id="${esc(route.id)}">🗺️</button><button class="button-icon lock-button ${locked ? "is-locked" : ""}" title="${locked ? "Unlock route" : "Lock route"}" data-action="toggle-lock" data-route-id="${esc(route.id)}"><span class="lock-glyph" aria-hidden="true"></span></button><button class="button-icon" title="Dissolve route" data-action="dissolve" data-route-id="${esc(route.id)}">⊗</button></div></div>
+    <div class="route-head"><div class="route-label"><span class="route-grip">⋮⋮</span><div><div class="route-name">${esc(route.name)}</div><div class="route-sub">${route.ministers.length} ministers · ${route.households.length} households</div></div></div><div class="route-actions"><button class="button-icon route-notes-button ${route.notes ? "has-notes" : ""}" title="${route.notes ? "Edit route notes" : "Add route notes"}" aria-label="${route.notes ? "Edit route notes" : "Add route notes"}" data-action="route-notes" data-route-id="${esc(route.id)}">📝</button><button class="button-icon" title="View route map" data-action="route-map" data-route-id="${esc(route.id)}">🗺️</button><button class="button-icon lock-button ${locked ? "is-locked" : ""}" title="${locked ? "Unlock route" : "Lock route"}" data-action="toggle-lock" data-route-id="${esc(route.id)}"><span class="lock-glyph" aria-hidden="true"></span></button><button class="button-icon" title="Dissolve route" data-action="dissolve" data-route-id="${esc(route.id)}">⊗</button></div></div>
+    ${route.notes ? `<div class="route-note-preview" title="${esc(route.notes)}"><span aria-hidden="true">📝</span>${esc(route.notes)}</div>` : ""}
     <div class="route-body"><div class="route-section-label"><span>Ministers</span><span>${locked ? "locked" : "drag to move"}</span></div><div class="route-drop" data-route-drop="${esc(route.id)}" data-route-id="${esc(route.id)}" data-drop-kind="minister">${route.ministers.map((person) => personHtml(person, "minister", { route: true, showMove: true })).join("")}</div><div class="route-section-label"><span>Households</span><span>${route.households.length} assigned</span></div><div class="household-column-head"><span></span><span>Household</span><span>assign</span><span></span></div><div class="route-drop" data-route-drop="${esc(route.id)}" data-route-id="${esc(route.id)}" data-drop-kind="household">${sortedHouseholds.map((household) => personHtml(household, "household", { route: true, showMove: true })).join("")}</div></div>
   </article>`;
 }
@@ -477,7 +484,7 @@ function handleAction(event) {
   if (action === "add-route") {
     const district = findDistrict(event.currentTarget.dataset.districtId);
     if (!district) return;
-    district.routes.unshift({ id: uid("route"), name: "Open route", locked: false, ministers: [], households: [], source: "manual" });
+    district.routes.unshift({ id: uid("route"), name: "Open route", notes: "", locked: false, ministers: [], households: [], source: "manual" });
     state.filters.search = "";
     els.search.value = "";
     markDirty();
@@ -504,12 +511,15 @@ function handleAction(event) {
     if (route) { route.locked = !route.locked; markDirty(); toast(route.locked ? `${route.name} locked.` : `${route.name} unlocked.`); render(); }
   }
   if (action === "dissolve") openDissolve(findRoute(event.currentTarget.dataset.routeId));
+  if (action === "route-notes") openRouteNotes(findRoute(event.currentTarget.dataset.routeId));
   if (action === "route-map") openRouteMap(findRoute(event.currentTarget.dataset.routeId));
 }
 
 function openDissolve(route) {
   if (!route) return;
   if (route.locked) { toast("That route is locked. Unlock it before dissolving it.", "error"); return; }
+  els.modalConfirm.classList.remove("button-primary");
+  els.modalConfirm.classList.add("button-danger");
   els.modalTitle.textContent = "Dissolve route?";
   els.modalCopy.textContent = `This will move ${route.ministers.length} minister${route.ministers.length === 1 ? "" : "s"} and ${route.households.length} household${route.households.length === 1 ? "" : "s"} into the ready-to-assign buckets.`;
   els.modalBackdrop.classList.remove("hidden");
@@ -518,13 +528,34 @@ function openDissolve(route) {
   els.modalConfirm.onclick = confirm;
 }
 function openClearWorkspace() {
+  els.modalConfirm.classList.remove("button-primary");
+  els.modalConfirm.classList.add("button-danger");
   els.modalTitle.textContent = "Clear workspace?";
   els.modalCopy.textContent = "This will remove the loaded assignments, unassigned lists, and any unsaved changes from the workspace.";
   els.modalConfirm.textContent = "Clear workspace";
   els.modalBackdrop.classList.remove("hidden");
   els.modalConfirm.onclick = () => { resetWorkspace(); closeModal(); };
 }
-function closeModal() { els.modalBackdrop.classList.add("hidden"); els.modalConfirm.onclick = null; els.modalTitle.textContent = "Dissolve route?"; els.modalConfirm.textContent = "Dissolve route"; }
+function openRouteNotes(route) {
+  if (!route) return;
+  els.modalTitle.textContent = `${route.name} notes`;
+  els.modalCopy.textContent = "Add a note for this route. It will be saved with the workspace and included in exports.";
+  els.modalEditor.value = route.notes || "";
+  els.modalEditor.classList.remove("hidden");
+  els.modalBackdrop.classList.remove("hidden");
+  els.modalConfirm.classList.remove("button-danger");
+  els.modalConfirm.classList.add("button-primary");
+  els.modalConfirm.textContent = "Save notes";
+  els.modalConfirm.onclick = () => {
+    route.notes = els.modalEditor.value.trim();
+    markDirty();
+    closeModal();
+    toast(route.notes ? "Route notes saved." : "Route notes cleared.");
+    render();
+  };
+  requestAnimationFrame(() => els.modalEditor.focus());
+}
+function closeModal() { els.modalBackdrop.classList.add("hidden"); els.modalConfirm.onclick = null; els.modalConfirm.classList.remove("button-primary"); els.modalConfirm.classList.add("button-danger"); els.modalTitle.textContent = "Dissolve route?"; els.modalCopy.textContent = ""; els.modalEditor.value = ""; els.modalEditor.classList.add("hidden"); els.modalConfirm.textContent = "Dissolve route"; }
 
 async function togglePanelFullscreen(panelId) {
   const panel = $(panelId);
@@ -734,7 +765,7 @@ async function parsePdf(file) {
       const households = householdGroups.map((group) => { const household = parseHouseholdCard(group); household._top = group[0].y; return household; });
       parseMemberLines(segment, households);
       households.forEach((household) => delete household._top);
-      district.push({ id: uid("route"), name: routeNameFromMinisters(ministers), locked: false, ministers, households, sourcePage: pages.indexOf(lines) + 1 });
+      district.push({ id: uid("route"), name: routeNameFromMinisters(ministers), notes: "", locked: false, ministers, households, sourcePage: pages.indexOf(lines) + 1 });
     }
   }
   return [...parsedDistricts.entries()].map(([name, routes]) => ({ id: uid("district"), name, routes }));
@@ -799,7 +830,7 @@ function restoreFromAssignmentsSheet(rows) {
     const routeId = clean(rowValue(row, ["routeid", "route id"]));
     const routeKey = routeId || `${districtName}::${routeName}`;
     if (!routeMap.has(routeKey)) {
-      const route = { id: routeId || uid("route"), name: routeName, locked: parseReady(rowValue(row, ["locked"])), ministers: [], households: [] };
+      const route = { id: routeId || uid("route"), name: routeName, notes: clean(rowValue(row, ["notes", "route notes"])), locked: parseReady(rowValue(row, ["locked"])), ministers: [], households: [] };
       routeMap.set(routeKey, route);
       district.routes.push(route);
     }
@@ -932,12 +963,12 @@ function downloadWorkbook() {
   const assignmentRows = allRoutes().flatMap((route) => {
     const district = routeDistrict(route.id)?.name || "";
     const households = route.households.length ? route.households : [{ name: "", address: "", highNeeds: false, members: [] }];
-    return households.map((household) => ({ District: district, Route: route.name, Locked: route.locked ? "Yes" : "No", Ministers: route.ministers.map((minister) => minister.name).join(" & "), Household: household.name, Assign: household.assign || "", Address: household.address || "", HighNeeds: household.highNeeds ? "Yes" : "No", HouseholdMembers: (household.members || []).map((member) => member.name).join(" | "), RouteId: route.id }));
+    return households.map((household) => ({ District: district, Route: route.name, Notes: route.notes || "", Locked: route.locked ? "Yes" : "No", Ministers: route.ministers.map((minister) => minister.name).join(" & "), Household: household.name, Assign: household.assign || "", Address: household.address || "", HighNeeds: household.highNeeds ? "Yes" : "No", HouseholdMembers: (household.members || []).map((member) => member.name).join(" | "), RouteId: route.id }));
   });
   const ministerRows = state.unassignedMinisters.map((minister) => ({ Name: minister.name, Age: minister.age || "", Address: minister.address || "", Ready: minister.ready ? "Yes" : "No" }));
   const householdRows = state.unassignedHouseholds.map((household) => ({ Name: household.name, Assign: household.assign || "", Address: household.address || "", HighNeeds: household.highNeeds ? "Yes" : "No", Ready: household.ready ? "Yes" : "No" }));
   const workbook = spreadsheetLib.utils.book_new();
-  spreadsheetLib.utils.book_append_sheet(workbook, spreadsheetLib.utils.json_to_sheet(assignmentRows, { header: ["District", "Route", "Locked", "Ministers", "Household", "Assign", "Address", "HighNeeds", "HouseholdMembers", "RouteId"] }), "Assignments");
+  spreadsheetLib.utils.book_append_sheet(workbook, spreadsheetLib.utils.json_to_sheet(assignmentRows, { header: ["District", "Route", "Notes", "Locked", "Ministers", "Household", "Assign", "Address", "HighNeeds", "HouseholdMembers", "RouteId"] }), "Assignments");
   spreadsheetLib.utils.book_append_sheet(workbook, spreadsheetLib.utils.json_to_sheet(ministerRows, { header: ["Name", "Age", "Address", "Ready"] }), "Unassigned Ministers");
   spreadsheetLib.utils.book_append_sheet(workbook, spreadsheetLib.utils.json_to_sheet(householdRows, { header: ["Name", "Assign", "Address", "HighNeeds", "Ready"] }), "Unassigned Households");
   const savedState = {
@@ -955,12 +986,12 @@ function downloadWorkbook() {
   for (let index = 0; index < serializedState.length; index += 30000) progressRows.push({ State: serializedState.slice(index, index + 30000) });
   spreadsheetLib.utils.book_append_sheet(workbook, spreadsheetLib.utils.json_to_sheet(progressRows), "Progress");
   styleExportSheet(workbook.Sheets.Assignments, {
-    widths: [15, 26, 10, 34, 26, 12, 34, 12, 48, 24],
-    centerColumns: [2, 5, 7],
-    assignColumn: 5,
-    highNeedsColumn: 7,
-    yesNoColumns: [2, 7],
-    hiddenColumns: [9],
+    widths: [15, 26, 42, 10, 34, 26, 12, 34, 12, 48, 24],
+    centerColumns: [3, 6, 8],
+    assignColumn: 6,
+    highNeedsColumn: 8,
+    yesNoColumns: [3, 8],
+    hiddenColumns: [10],
     tabColor: "1F4D43",
   });
   styleExportSheet(workbook.Sheets["Unassigned Ministers"], {
