@@ -804,7 +804,7 @@ function parseWorkbook(file) {
     if (!ministersSheet && !householdsSheet) throw new Error("Workbook needs Unassigned Ministers and/or Unassigned Households tabs.");
     const ministers = ministersSheet ? spreadsheetLib.utils.sheet_to_json(workbook.Sheets[ministersSheet], { defval: "" }).map((row) => ({ id: uid("minister"), name: clean(rowValue(row, ["name", "minister"])), age: clean(rowValue(row, ["age"])), address: clean(rowValue(row, ["address"])), ready: parseReady(rowValue(row, ["ready", "is ready"])), source: "workbook" })).filter((item) => item.name) : [];
     const households = householdsSheet ? spreadsheetLib.utils.sheet_to_json(workbook.Sheets[householdsSheet], { defval: "" }).map((row) => ({ id: uid("household"), name: clean(rowValue(row, ["name", "household"])), address: clean(rowValue(row, ["address"])), members: [], assign: clean(rowValue(row, ["assign", "assignment"])), highNeeds: parseReady(rowValue(row, ["highneeds", "high needs"])), ready: parseReady(rowValue(row, ["ready", "is ready"])), source: "workbook" })).filter((item) => item.name) : [];
-    return { ministers, households, sheetNames: workbook.SheetNames };
+    return { ministers, households, sheetNames: workbook.SheetNames, hasMinisterSheet: Boolean(ministersSheet), hasHouseholdSheet: Boolean(householdsSheet) };
   });
 }
 
@@ -867,9 +867,30 @@ function restoreSavedState(savedState) {
   updateSaveStatus();
 }
 
-function mergeBuckets(items, existing) {
-  const seen = new Set(existing.map((item) => normalize(item.name)));
-  return existing.concat(items.filter((item) => { const key = normalize(item.name); if (!key || seen.has(key)) return false; seen.add(key); return true; }));
+function reconcileBucket(items, existing, kind) {
+  const existingByName = new Map(existing.map((item) => [normalize(item.name), item]));
+  const matchedNames = new Set();
+  const reconciled = items.filter((item) => clean(item.name)).map((item) => {
+    const key = normalize(item.name);
+    const previous = existingByName.get(key);
+    if (!previous || matchedNames.has(key)) return item;
+    matchedNames.add(key);
+    const addressChanged = normalize(previous.address) !== normalize(item.address);
+    return {
+      ...previous,
+      ...item,
+      id: previous.id,
+      ready: previous.ready,
+      ...(kind === "household" ? {
+        assign: previous.assign || "",
+        highNeeds: Boolean(previous.highNeeds),
+        members: item.members?.length ? item.members : (previous.members || []),
+      } : {}),
+      ...(addressChanged ? { lat: undefined, lon: undefined, geocodeSource: undefined } : { lat: previous.lat, lon: previous.lon, geocodeSource: previous.geocodeSource }),
+    };
+  });
+  const removed = existing.filter((item) => !matchedNames.has(normalize(item.name))).length;
+  return { items: reconciled, removed };
 }
 
 async function handlePdf(file) {
@@ -879,7 +900,7 @@ async function handlePdf(file) {
 }
 async function handleWorkbook(file) {
   els.xlsxStatus.textContent = "Reading workbook...";
-  try { const parsed = await parseWorkbook(file); if (parsed.savedState) { restoreSavedState(parsed.savedState); state.workbookLoaded = true; els.xlsxStatus.textContent = `${file.name} · saved progress restored`; els.xlsxStatus.classList.add("loaded"); toast("Saved progress restored."); } else { state.unassignedMinisters = mergeBuckets(parsed.ministers, state.unassignedMinisters); state.unassignedHouseholds = mergeBuckets(parsed.households, state.unassignedHouseholds); state.workbookLoaded = true; markDirty(); els.xlsxStatus.textContent = `${file.name} · ${parsed.sheetNames.length} tabs`; els.xlsxStatus.classList.add("loaded"); toast(`Imported ${parsed.ministers.length} ministers and ${parsed.households.length} households.`); } render(); }
+  try { const parsed = await parseWorkbook(file); if (parsed.savedState) { restoreSavedState(parsed.savedState); state.workbookLoaded = true; els.xlsxStatus.textContent = `${file.name} · saved progress restored`; els.xlsxStatus.classList.add("loaded"); toast("Saved progress restored."); } else { const ministers = parsed.hasMinisterSheet ? reconcileBucket(parsed.ministers, state.unassignedMinisters, "minister") : { items: state.unassignedMinisters, removed: 0 }; const households = parsed.hasHouseholdSheet ? reconcileBucket(parsed.households, state.unassignedHouseholds, "household") : { items: state.unassignedHouseholds, removed: 0 }; state.unassignedMinisters = ministers.items; state.unassignedHouseholds = households.items; state.workbookLoaded = true; markDirty(); els.xlsxStatus.textContent = `${file.name} · ${parsed.sheetNames.length} tabs`; els.xlsxStatus.classList.add("loaded"); const removed = []; if (ministers.removed) removed.push(`${ministers.removed} minister${ministers.removed === 1 ? "" : "s"}`); if (households.removed) removed.push(`${households.removed} household${households.removed === 1 ? "" : "s"}`); toast(`Imported ${parsed.ministers.length} ministers and ${parsed.households.length} households.${removed.length ? ` Removed ${removed.join(" and ")} no longer in the list.` : " Existing records matched."}`); } render(); }
   catch (error) { console.error(error); els.xlsxStatus.textContent = "Could not read this workbook"; toast(error.message || "Workbook import failed.", "error"); }
 }
 
