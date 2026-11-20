@@ -212,13 +212,14 @@ function personHtml(person, kind, options = {}) {
   const meta = isHousehold ? "" : [person.age ? `Age ${person.age}` : "", person.address || ""].filter(Boolean).join(" · ");
   const moveButton = options.showMove ? `<button class="button-icon" title="Move to unassigned" data-action="move-unassigned" data-kind="${kind}" data-id="${esc(person.id)}">↗</button>` : "";
   const needsButton = isHousehold ? `<button class="button-icon needs-button ${person.highNeeds ? "is-active" : ""}" title="${person.highNeeds ? "Remove high needs flag" : "Mark high needs"}" data-action="toggle-needs" data-id="${esc(person.id)}">H</button>` : "";
+  const keepButton = options.bucket ? `<button class="button-icon keep-unassigned-button ${person.keepUnassigned ? "is-active" : ""}" title="${person.keepUnassigned ? "Allow removal when absent from a refreshed list" : "Keep through refreshed unassigned lists"}" data-action="toggle-keep-unassigned" data-kind="${kind}" data-id="${esc(person.id)}">📌</button>` : "";
   const readinessButton = options.bucket ? `<button class="button-icon readiness-button ${person.ready ? "is-ready" : ""}" title="${person.ready ? "Move back to not ready" : "Mark ready for assignment"}" data-action="toggle-ready" data-kind="${kind}" data-id="${esc(person.id)}">${person.ready ? "↶" : "✓"}</button>` : "";
   const assignmentCell = isHousehold ? assignmentSelectHtml(person) : "";
   return `<div class="${isHousehold ? "household-row" : "person-row"} ${options.route ? "route-row" : ""}" draggable="true" data-drag-kind="${kind}" data-drag-id="${esc(person.id)}">
     <div class="avatar ${isHousehold ? "warm" : ""}">${initial(displayName)}</div>
     <div class="row-copy"><div class="row-name">${esc(displayName)}</div>${meta ? `<div class="row-meta">${esc(meta)}</div>` : ""}${isHousehold && householdFirstNamesDisplay(person) ? `<div class="household-members">${esc(householdFirstNamesDisplay(person))}</div>` : ""}</div>
     ${assignmentCell}
-    <div class="household-flags">${needsButton}${readinessButton}${moveButton}</div>
+    <div class="household-flags">${needsButton}${keepButton}${readinessButton}${moveButton}</div>
   </div>`;
 }
 
@@ -466,9 +467,12 @@ function moveDroppedItem(data, target, targetReady = null) {
   }
   if (target === "unassigned") {
     if (targetReady !== null) item.ready = targetReady;
+    item.keepUnassigned = true;
     (data.kind === "minister" ? state.unassignedMinisters : state.unassignedHouseholds).push(item);
+  } else {
+    item.keepUnassigned = false;
+    destinationRoute[key].push(item);
   }
-  else destinationRoute[key].push(item);
   if (data.kind === "minister") {
     refreshRouteName(sourceRoute);
     refreshRouteName(destinationRoute);
@@ -495,16 +499,21 @@ function handleAction(event) {
   if (action === "move-unassigned") moveDroppedItem({ kind: event.currentTarget.dataset.kind, id: event.currentTarget.dataset.id }, "unassigned");
   if (action === "set-assign") {
     const household = allAssignedHouseholds().find((item) => item.id === event.currentTarget.dataset.id) || state.unassignedHouseholds.find((item) => item.id === event.currentTarget.dataset.id);
-    if (household) { household.assign = event.currentTarget.value; markDirty(); render(); }
+    if (household) { household.assign = event.currentTarget.value; if (state.unassignedHouseholds.includes(household)) household.keepUnassigned = true; markDirty(); render(); }
   }
   if (action === "toggle-needs") {
     const household = allAssignedHouseholds().find((item) => item.id === event.currentTarget.dataset.id) || state.unassignedHouseholds.find((item) => item.id === event.currentTarget.dataset.id);
-    if (household) { household.highNeeds = !household.highNeeds; markDirty(); render(); }
+    if (household) { household.highNeeds = !household.highNeeds; if (state.unassignedHouseholds.includes(household)) household.keepUnassigned = true; markDirty(); render(); }
   }
   if (action === "toggle-ready") {
     const bucket = event.currentTarget.dataset.kind === "minister" ? state.unassignedMinisters : state.unassignedHouseholds;
     const item = bucket.find((candidate) => candidate.id === event.currentTarget.dataset.id);
-    if (item) { item.ready = !item.ready; markDirty(); toast(item.ready ? `${item.name} marked ready for assignment.` : `${item.name} moved back to not ready.`); render(); }
+    if (item) { item.ready = !item.ready; item.keepUnassigned = true; markDirty(); toast(item.ready ? `${item.name} marked ready for assignment.` : `${item.name} moved back to not ready.`); render(); }
+  }
+  if (action === "toggle-keep-unassigned") {
+    const bucket = event.currentTarget.dataset.kind === "minister" ? state.unassignedMinisters : state.unassignedHouseholds;
+    const item = bucket.find((candidate) => candidate.id === event.currentTarget.dataset.id);
+    if (item) { item.keepUnassigned = !item.keepUnassigned; markDirty(); toast(item.keepUnassigned ? `${item.name} will be kept through refreshed lists.` : `${item.name} can be removed when absent from a refreshed list.`); render(); }
   }
   if (action === "toggle-lock") {
     const route = findRoute(event.currentTarget.dataset.routeId);
@@ -524,7 +533,7 @@ function openDissolve(route) {
   els.modalCopy.textContent = `This will move ${route.ministers.length} minister${route.ministers.length === 1 ? "" : "s"} and ${route.households.length} household${route.households.length === 1 ? "" : "s"} into the ready-to-assign buckets.`;
   els.modalBackdrop.classList.remove("hidden");
   els.modalConfirm.textContent = "Dissolve route";
-  const confirm = () => { route.ministers.forEach((item) => { item.ready = true; }); route.households.forEach((item) => { item.ready = true; }); state.unassignedMinisters.push(...route.ministers); state.unassignedHouseholds.push(...route.households); const district = routeDistrict(route.id); district.routes = district.routes.filter((candidate) => candidate.id !== route.id); markDirty(); closeModal(); toast(`${route.name} dissolved.`); render(); };
+  const confirm = () => { route.ministers.forEach((item) => { item.ready = true; item.keepUnassigned = true; }); route.households.forEach((item) => { item.ready = true; item.keepUnassigned = true; }); state.unassignedMinisters.push(...route.ministers); state.unassignedHouseholds.push(...route.households); const district = routeDistrict(route.id); district.routes = district.routes.filter((candidate) => candidate.id !== route.id); markDirty(); closeModal(); toast(`${route.name} dissolved.`); render(); };
   els.modalConfirm.onclick = confirm;
 }
 function openClearWorkspace() {
@@ -796,14 +805,14 @@ function parseWorkbook(file) {
       const assignmentRows = spreadsheetLib.utils.sheet_to_json(workbook.Sheets[assignmentsSheet], { defval: "" });
       const restored = restoreFromAssignmentsSheet(assignmentRows);
       if (restored) {
-        restored.unassignedMinisters = ministersSheet ? spreadsheetLib.utils.sheet_to_json(workbook.Sheets[ministersSheet], { defval: "" }).map((row) => ({ id: uid("minister"), name: clean(rowValue(row, ["name", "minister"])), age: clean(rowValue(row, ["age"])), address: clean(rowValue(row, ["address"])), ready: parseReady(rowValue(row, ["ready", "is ready"])), source: "saved-workbook" })).filter((item) => item.name) : [];
-        restored.unassignedHouseholds = householdsSheet ? spreadsheetLib.utils.sheet_to_json(workbook.Sheets[householdsSheet], { defval: "" }).map((row) => ({ id: uid("household"), name: clean(rowValue(row, ["name", "household"])), address: clean(rowValue(row, ["address"])), members: [], assign: clean(rowValue(row, ["assign", "assignment"])), highNeeds: parseReady(rowValue(row, ["highneeds", "high needs"])), ready: parseReady(rowValue(row, ["ready", "is ready"])), source: "saved-workbook" })).filter((item) => item.name) : [];
+        restored.unassignedMinisters = ministersSheet ? spreadsheetLib.utils.sheet_to_json(workbook.Sheets[ministersSheet], { defval: "" }).map((row) => ({ id: uid("minister"), name: clean(rowValue(row, ["name", "minister"])), age: clean(rowValue(row, ["age"])), address: clean(rowValue(row, ["address"])), ready: parseReady(rowValue(row, ["ready", "is ready"])), keepUnassigned: parseReady(rowValue(row, ["keep", "keep unassigned"])), source: "saved-workbook" })).filter((item) => item.name) : [];
+        restored.unassignedHouseholds = householdsSheet ? spreadsheetLib.utils.sheet_to_json(workbook.Sheets[householdsSheet], { defval: "" }).map((row) => ({ id: uid("household"), name: clean(rowValue(row, ["name", "household"])), address: clean(rowValue(row, ["address"])), members: [], assign: clean(rowValue(row, ["assign", "assignment"])), highNeeds: parseReady(rowValue(row, ["highneeds", "high needs"])), ready: parseReady(rowValue(row, ["ready", "is ready"])), keepUnassigned: parseReady(rowValue(row, ["keep", "keep unassigned"])), source: "saved-workbook" })).filter((item) => item.name) : [];
         return { savedState: restored, sheetNames: workbook.SheetNames, hasMinisterSheet: Boolean(ministersSheet), hasHouseholdSheet: Boolean(householdsSheet) };
       }
     }
     if (!ministersSheet && !householdsSheet) throw new Error("Workbook needs Unassigned Ministers and/or Unassigned Households tabs.");
-    const ministers = ministersSheet ? spreadsheetLib.utils.sheet_to_json(workbook.Sheets[ministersSheet], { defval: "" }).map((row) => ({ id: uid("minister"), name: clean(rowValue(row, ["name", "minister"])), age: clean(rowValue(row, ["age"])), address: clean(rowValue(row, ["address"])), ready: parseReady(rowValue(row, ["ready", "is ready"])), source: "workbook" })).filter((item) => item.name) : [];
-    const households = householdsSheet ? spreadsheetLib.utils.sheet_to_json(workbook.Sheets[householdsSheet], { defval: "" }).map((row) => ({ id: uid("household"), name: clean(rowValue(row, ["name", "household"])), address: clean(rowValue(row, ["address"])), members: [], assign: clean(rowValue(row, ["assign", "assignment"])), highNeeds: parseReady(rowValue(row, ["highneeds", "high needs"])), ready: parseReady(rowValue(row, ["ready", "is ready"])), source: "workbook" })).filter((item) => item.name) : [];
+    const ministers = ministersSheet ? spreadsheetLib.utils.sheet_to_json(workbook.Sheets[ministersSheet], { defval: "" }).map((row) => ({ id: uid("minister"), name: clean(rowValue(row, ["name", "minister"])), age: clean(rowValue(row, ["age"])), address: clean(rowValue(row, ["address"])), ready: parseReady(rowValue(row, ["ready", "is ready"])), keepUnassigned: parseReady(rowValue(row, ["keep", "keep unassigned"])), source: "workbook" })).filter((item) => item.name) : [];
+    const households = householdsSheet ? spreadsheetLib.utils.sheet_to_json(workbook.Sheets[householdsSheet], { defval: "" }).map((row) => ({ id: uid("household"), name: clean(rowValue(row, ["name", "household"])), address: clean(rowValue(row, ["address"])), members: [], assign: clean(rowValue(row, ["assign", "assignment"])), highNeeds: parseReady(rowValue(row, ["highneeds", "high needs"])), ready: parseReady(rowValue(row, ["ready", "is ready"])), keepUnassigned: parseReady(rowValue(row, ["keep", "keep unassigned"])), source: "workbook" })).filter((item) => item.name) : [];
     return { ministers, households, sheetNames: workbook.SheetNames, hasMinisterSheet: Boolean(ministersSheet), hasHouseholdSheet: Boolean(householdsSheet) };
   });
 }
@@ -881,6 +890,7 @@ function reconcileBucket(items, existing, kind) {
       ...item,
       id: previous.id,
       ready: previous.ready,
+      keepUnassigned: Boolean(previous.keepUnassigned || item.keepUnassigned),
       ...(kind === "household" ? {
         assign: previous.assign || "",
         highNeeds: Boolean(previous.highNeeds),
@@ -889,8 +899,9 @@ function reconcileBucket(items, existing, kind) {
       ...(addressChanged ? { lat: undefined, lon: undefined, geocodeSource: undefined } : { lat: previous.lat, lon: previous.lon, geocodeSource: previous.geocodeSource }),
     };
   });
-  const removed = existing.filter((item) => !matchedNames.has(normalize(item.name))).length;
-  return { items: reconciled, removed };
+  const protectedItems = existing.filter((item) => !matchedNames.has(normalize(item.name)) && item.keepUnassigned);
+  const removed = existing.filter((item) => !matchedNames.has(normalize(item.name)) && !item.keepUnassigned).length;
+  return { items: reconciled.concat(protectedItems), removed, protected: protectedItems.length };
 }
 
 function pdfItemKeys(item, kind) {
@@ -934,6 +945,7 @@ function refreshPdfItem(existing, incoming, kind) {
   const preserved = {
     id: existing.id,
     ready: existing.ready,
+    keepUnassigned: existing.keepUnassigned,
     lat: existing.lat,
     lon: existing.lon,
     geocodeSource: existing.geocodeSource,
@@ -1034,7 +1046,7 @@ function mergePdfIntoWorkspace(parsedDistricts) {
     [...route.ministers, ...route.households].forEach((item) => {
       if (assignedIds.has(item.id)) return;
       const bucket = route.ministers.includes(item) ? ministers : households;
-      if (!bucket.some((candidate) => candidate.id === item.id)) { bucket.push(item); movedToUnassigned += 1; }
+      if (!bucket.some((candidate) => candidate.id === item.id)) { item.keepUnassigned = true; bucket.push(item); movedToUnassigned += 1; }
     });
   });
   state.districts = mergedDistricts;
@@ -1079,10 +1091,11 @@ async function handleWorkbook(file, restoreProgress = false) {
       markDirty();
       els.xlsxStatus.textContent = `${file.name} · ${parsed.sheetNames.length} tabs`;
       els.xlsxStatus.classList.add("loaded");
+      const protectedCount = (ministers.protected || 0) + (households.protected || 0);
       const removed = [];
       if (ministers.removed) removed.push(`${ministers.removed} minister${ministers.removed === 1 ? "" : "s"}`);
       if (households.removed) removed.push(`${households.removed} household${households.removed === 1 ? "" : "s"}`);
-      toast(`Imported ${importedMinisters.length} ministers and ${importedHouseholds.length} households.${removed.length ? ` Removed ${removed.join(" and ")} no longer in the list.` : " Existing records matched."}`);
+      toast(`Imported ${importedMinisters.length} ministers and ${importedHouseholds.length} households.${removed.length ? ` Removed ${removed.join(" and ")} no longer in the list.` : " Existing records matched."}${protectedCount ? ` Kept ${protectedCount} manually retained record${protectedCount === 1 ? "" : "s"}.` : ""}`);
     }
     render();
   }
@@ -1171,12 +1184,12 @@ function downloadWorkbook() {
     const households = route.households.length ? route.households : [{ name: "", address: "", highNeeds: false, members: [] }];
     return households.map((household) => ({ District: district, Route: route.name, Notes: route.notes || "", Locked: route.locked ? "Yes" : "No", Ministers: route.ministers.map((minister) => minister.name).join(" & "), Household: household.name, Assign: household.assign || "", Address: household.address || "", HighNeeds: household.highNeeds ? "Yes" : "No", HouseholdMembers: (household.members || []).map((member) => member.name).join(" | "), RouteId: route.id }));
   });
-  const ministerRows = state.unassignedMinisters.map((minister) => ({ Name: minister.name, Age: minister.age || "", Address: minister.address || "", Ready: minister.ready ? "Yes" : "No" }));
-  const householdRows = state.unassignedHouseholds.map((household) => ({ Name: household.name, Assign: household.assign || "", Address: household.address || "", HighNeeds: household.highNeeds ? "Yes" : "No", Ready: household.ready ? "Yes" : "No" }));
+  const ministerRows = state.unassignedMinisters.map((minister) => ({ Name: minister.name, Age: minister.age || "", Address: minister.address || "", Ready: minister.ready ? "Yes" : "No", Keep: minister.keepUnassigned ? "Yes" : "No" }));
+  const householdRows = state.unassignedHouseholds.map((household) => ({ Name: household.name, Assign: household.assign || "", Address: household.address || "", HighNeeds: household.highNeeds ? "Yes" : "No", Ready: household.ready ? "Yes" : "No", Keep: household.keepUnassigned ? "Yes" : "No" }));
   const workbook = spreadsheetLib.utils.book_new();
   spreadsheetLib.utils.book_append_sheet(workbook, spreadsheetLib.utils.json_to_sheet(assignmentRows, { header: ["District", "Route", "Notes", "Locked", "Ministers", "Household", "Assign", "Address", "HighNeeds", "HouseholdMembers", "RouteId"] }), "Assignments");
-  spreadsheetLib.utils.book_append_sheet(workbook, spreadsheetLib.utils.json_to_sheet(ministerRows, { header: ["Name", "Age", "Address", "Ready"] }), "Unassigned Ministers");
-  spreadsheetLib.utils.book_append_sheet(workbook, spreadsheetLib.utils.json_to_sheet(householdRows, { header: ["Name", "Assign", "Address", "HighNeeds", "Ready"] }), "Unassigned Households");
+  spreadsheetLib.utils.book_append_sheet(workbook, spreadsheetLib.utils.json_to_sheet(ministerRows, { header: ["Name", "Age", "Address", "Ready", "Keep"] }), "Unassigned Ministers");
+  spreadsheetLib.utils.book_append_sheet(workbook, spreadsheetLib.utils.json_to_sheet(householdRows, { header: ["Name", "Assign", "Address", "HighNeeds", "Ready", "Keep"] }), "Unassigned Households");
   const savedState = {
     version: 1,
     districts: state.districts,
@@ -1201,17 +1214,17 @@ function downloadWorkbook() {
     tabColor: "1F4D43",
   });
   styleExportSheet(workbook.Sheets["Unassigned Ministers"], {
-    widths: [32, 8, 36, 12],
-    centerColumns: [1, 3],
-    yesNoColumns: [3],
+    widths: [32, 8, 36, 12, 12],
+    centerColumns: [1, 3, 4],
+    yesNoColumns: [3, 4],
     tabColor: "547A69",
   });
   styleExportSheet(workbook.Sheets["Unassigned Households"], {
-    widths: [36, 12, 36, 12, 12],
-    centerColumns: [1, 3, 4],
+    widths: [36, 12, 36, 12, 12, 12],
+    centerColumns: [1, 3, 4, 5],
     assignColumn: 1,
     highNeedsColumn: 3,
-    yesNoColumns: [3, 4],
+    yesNoColumns: [3, 4, 5],
     tabColor: "C28A46",
   });
   styleExportSheet(workbook.Sheets.Progress, {

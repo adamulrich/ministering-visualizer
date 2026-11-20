@@ -90,5 +90,37 @@
       </main>
       <footer class="help-footer"><span>Ministering Visualizer</span><a href="/">Back to the assignment diagram</a></footer>
     </div>
+    <div class="image-lightbox hidden" id="image-lightbox" role="dialog" aria-modal="true" aria-label="Expanded workflow screenshot">
+      <button class="image-lightbox-close" id="image-lightbox-close" type="button" aria-label="Close expanded image">×</button>
+      <img id="image-lightbox-image" alt="">
+    </div>
+    <script>
+      const lightbox = document.getElementById("image-lightbox");
+      const lightboxImage = document.getElementById("image-lightbox-image");
+      const closeLightbox = () => {
+        lightbox.classList.add("hidden");
+        document.body.classList.remove("is-lightbox-open");
+        lightboxImage.removeAttribute("src");
+      };
+      document.querySelectorAll(".help-image-pair img, .help-image-wide img").forEach((image) => {
+        image.classList.add("is-zoomable");
+        image.tabIndex = 0;
+        image.setAttribute("role", "button");
+        image.setAttribute("aria-label", "Open screenshot full screen");
+        const openLightbox = () => {
+          lightboxImage.src = image.currentSrc || image.src;
+          lightboxImage.alt = image.alt;
+          lightbox.classList.remove("hidden");
+          document.body.classList.add("is-lightbox-open");
+        };
+        image.addEventListener("click", openLightbox);
+        image.addEventListener("keydown", (event) => {
+          if (event.key === "Enter" || event.key === " ") { event.preventDefault(); openLightbox(); }
+        });
+      });
+      document.getElementById("image-lightbox-close").addEventListener("click", closeLightbox);
+      lightbox.addEventListener("click", (event) => { if (event.target === lightbox) closeLightbox(); });
+      document.addEventListener("keydown", (event) => { if (event.key === "Escape" && !lightbox.classList.contains("hidden")) closeLightbox(); });
+    </script>
   </body>
 </html>

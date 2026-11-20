@@ -123,6 +123,8 @@ h2 { margin: 4px 0 0; font-size: 18px; letter-spacing: -.025em; }
 .bucket-tab.is-active span { color: var(--forest); background: #e5f1eb; }
 .readiness-button { color: #7e9a8b; font-size: 14px; }
 .readiness-button:hover, .readiness-button.is-ready { color: var(--forest); background: #e4f3eb; }
+.keep-unassigned-button { color: #aeb9b2; font-size: 12px; }
+.keep-unassigned-button:hover, .keep-unassigned-button.is-active { color: var(--warm); background: var(--warm-soft); }
 .bucket-search { display: block; margin: 0 17px 8px; }
 .bucket-search input { width: 100%; height: 30px; padding: 0 9px; border: 1px solid var(--line); border-radius: 8px; outline: none; color: var(--ink); background: #fff; font-size: 11px; }
 .bucket-search input:focus { border-color: var(--forest-2); box-shadow: 0 0 0 3px rgba(44,116,101,.1); }
@@ -318,6 +320,13 @@ h2 { margin: 4px 0 0; font-size: 18px; letter-spacing: -.025em; }
 .help-finish .button { flex: 0 0 auto; color: var(--forest); background: #fff; }
 .help-footer { display: flex; justify-content: space-between; gap: 20px; padding: 22px 2px 0; color: var(--muted); font-size: 13px; }
 .help-footer a { color: var(--forest-2); font-weight: 750; }
+.is-zoomable { cursor: zoom-in; }
+.is-zoomable:focus { outline: 3px solid var(--forest-2); outline-offset: 3px; }
+.is-lightbox-open { overflow: hidden; }
+.image-lightbox { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; padding: 34px; background: rgba(14, 30, 26, .88); cursor: zoom-out; }
+.image-lightbox img { display: block; max-width: min(96vw, 1800px); max-height: 94vh; width: auto; height: auto; object-fit: contain; border-radius: 8px; box-shadow: 0 20px 70px rgba(0,0,0,.35); cursor: default; }
+.image-lightbox-close { position: absolute; top: 16px; right: 18px; z-index: 1; width: 42px; height: 42px; border: 1px solid rgba(255,255,255,.35); border-radius: 50%; color: #fff; background: rgba(255,255,255,.12); font-size: 28px; line-height: 1; }
+.image-lightbox-close:hover { background: rgba(255,255,255,.24); }
 @media (max-width: 800px) {
   .help-shell { width: min(100% - 24px, 620px); padding-top: 14px; }
   .help-topbar { align-items: flex-start; }
