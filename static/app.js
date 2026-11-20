@@ -1292,9 +1292,63 @@ document.querySelectorAll("[data-panel-expand]").forEach((button) => button.addE
   renderBuckets();
 }));
 document.addEventListener("fullscreenchange", updatePanelFullscreenButtons);
-document.addEventListener("keydown", (event) => { if (event.key === "Escape" && document.fullscreenElement) document.exitFullscreen().catch(() => {}); });
+const helpView = $("how-to-view");
+const helpLightbox = $("app-help-lightbox");
+const helpLightboxImage = $("app-help-lightbox-image");
+function closeHelpLightbox() {
+  helpLightbox?.classList.add("hidden");
+  if (helpLightboxImage) helpLightboxImage.removeAttribute("src");
+}
+function initHelpLightbox() {
+  if (!helpView || helpView.dataset.lightboxBound === "true") return;
+  helpView.dataset.lightboxBound = "true";
+  helpView.querySelectorAll(".help-image-pair img, .help-image-wide img").forEach((image) => {
+    image.classList.add("is-zoomable");
+    image.tabIndex = 0;
+    image.setAttribute("role", "button");
+    image.setAttribute("aria-label", "Open screenshot full screen");
+    const open = () => {
+      helpLightboxImage.src = image.currentSrc || image.src;
+      helpLightboxImage.alt = image.alt;
+      helpLightbox.classList.remove("hidden");
+    };
+    image.addEventListener("click", open);
+    image.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") { event.preventDefault(); open(); }
+    });
+  });
+  $("app-help-lightbox-close").addEventListener("click", closeHelpLightbox);
+  helpLightbox.addEventListener("click", (event) => { if (event.target === helpLightbox) closeHelpLightbox(); });
+}
+function setHelpView(open, updateHistory = true) {
+  if (!helpView) return;
+  if (open) {
+    initHelpLightbox();
+    helpView.classList.remove("hidden");
+    if (updateHistory && location.hash !== "#how-to") history.pushState({}, "", "#how-to");
+  } else {
+    closeHelpLightbox();
+    helpView.classList.add("hidden");
+    if (updateHistory && location.hash) history.pushState({}, "", `${location.pathname}${location.search}`);
+  }
+}
+document.querySelectorAll("[data-open-help]").forEach((link) => link.addEventListener("click", (event) => { event.preventDefault(); setHelpView(true); }));
+document.querySelectorAll("[data-close-help]").forEach((link) => link.addEventListener("click", (event) => { event.preventDefault(); setHelpView(false); }));
+helpView?.querySelectorAll(".help-quick-links a").forEach((link) => link.addEventListener("click", (event) => {
+  event.preventDefault();
+  document.querySelector(link.getAttribute("href"))?.scrollIntoView({ behavior: "smooth", block: "start" });
+}));
+window.addEventListener("hashchange", () => setHelpView(location.hash === "#how-to", false));
+window.addEventListener("popstate", () => setHelpView(location.hash === "#how-to", false));
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "Escape") return;
+  if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+  else if (helpLightbox && !helpLightbox.classList.contains("hidden")) closeHelpLightbox();
+  else if (helpView && !helpView.classList.contains("hidden")) setHelpView(false);
+});
 window.addEventListener("beforeunload", (event) => { if (!state.isDirty) return; event.preventDefault(); event.returnValue = ""; });
 
 render();
 syncHouseholdFilterControl();
 updateSaveStatus();
+if (location.hash === "#how-to") setHelpView(true, false);
