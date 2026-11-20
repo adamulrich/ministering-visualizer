@@ -893,9 +893,169 @@ function reconcileBucket(items, existing, kind) {
   return { items: reconciled, removed };
 }
 
+function pdfItemKeys(item, kind) {
+  const keys = [];
+  const name = normalize(item.name);
+  if (kind === "household") {
+    const members = (item.members || []).map((member) => normalize(member.name)).filter(Boolean).sort();
+    if (members.length) keys.push(`members:${members.join("|")}`);
+    const headName = normalize(item.members?.[0]?.name || item.name);
+    if (headName) keys.push(`head:${headName}`);
+    if (item.address) keys.push(`address:${normalize(item.address)}`);
+    if (item.address && name) keys.push(`address:${normalize(item.address)}|name:${name}`);
+  }
+  if (name) keys.push(`name:${name}`);
+  return keys;
+}
+
+function buildPdfItemIndex() {
+  const index = new Map();
+  const add = (item, kind, owner) => pdfItemKeys(item, kind).forEach((key) => { if (!index.has(key)) index.set(key, { item, kind, owner }); });
+  state.districts.forEach((district) => district.routes.forEach((route) => {
+    route.ministers.forEach((item) => add(item, "minister", { type: "route", route }));
+    route.households.forEach((item) => add(item, "household", { type: "route", route }));
+  }));
+  state.unassignedMinisters.forEach((item) => add(item, "minister", { type: "bucket", bucket: state.unassignedMinisters }));
+  state.unassignedHouseholds.forEach((item) => add(item, "household", { type: "bucket", bucket: state.unassignedHouseholds }));
+  return index;
+}
+
+function findPdfItem(index, item, kind, usedItemIds = new Set()) {
+  for (const key of pdfItemKeys(item, kind)) {
+    const match = index.get(key);
+    if (match && match.kind === kind && !usedItemIds.has(match.item.id)) return match;
+  }
+  return null;
+}
+
+function refreshPdfItem(existing, incoming, kind) {
+  const existingAddress = normalize(existing.address);
+  const incomingAddress = normalize(incoming.address);
+  const preserved = {
+    id: existing.id,
+    ready: existing.ready,
+    lat: existing.lat,
+    lon: existing.lon,
+    geocodeSource: existing.geocodeSource,
+  };
+  if (kind === "household") {
+    preserved.assign = existing.assign || "";
+    preserved.highNeeds = Boolean(existing.highNeeds);
+  }
+  Object.assign(existing, incoming, preserved);
+  if (existingAddress !== incomingAddress) {
+    existing.lat = undefined;
+    existing.lon = undefined;
+    existing.geocodeSource = undefined;
+  }
+  return existing;
+}
+
+function routeMinisterKeys(route) { return route.ministers.map((item) => normalize(item.name)).filter(Boolean); }
+function routeHouseholdKeys(route) { return route.households.flatMap((item) => pdfItemKeys(item, "household")).filter((key) => key.startsWith("members:") || key.startsWith("address:")); }
+function overlap(left, right) { const rightSet = new Set(right); return left.filter((item) => rightSet.has(item)).length; }
+
+function findPdfRoute(existingRoutes, incomingRoute, usedRouteIds) {
+  const incomingMinisters = routeMinisterKeys(incomingRoute);
+  const incomingHouseholds = routeHouseholdKeys(incomingRoute);
+  const incomingMinisterSet = new Set(incomingMinisters);
+  let best = null;
+  let bestScore = 0;
+  existingRoutes.forEach(({ district, route }) => {
+    const candidate = route;
+    if (usedRouteIds.has(candidate.id)) return;
+    let score = 0;
+    const candidateMinisters = routeMinisterKeys(candidate);
+    const sameMinisterSet = candidateMinisters.length === incomingMinisters.length && candidateMinisters.every((name) => incomingMinisterSet.has(name));
+    if (sameMinisterSet && incomingMinisters.length) score += 1000;
+    if (normalize(candidate.name) === normalize(incomingRoute.name) && normalize(incomingRoute.name) !== "open route") score += 500;
+    const ministerOverlap = overlap(routeMinisterKeys(candidate), incomingMinisters);
+    const householdOverlap = overlap(routeHouseholdKeys(candidate), incomingHouseholds);
+    score += ministerOverlap * 25 + householdOverlap * 5;
+    if (normalize(district.name) === normalize(incomingRoute.districtName)) score += 2;
+    if (score > bestScore) { best = candidate; bestScore = score; }
+  });
+  return best;
+}
+
+function mergePdfIntoWorkspace(parsedDistricts) {
+  const itemIndex = buildPdfItemIndex();
+  const usedItemIds = new Set();
+  const usedRouteIds = new Set();
+  let preserved = 0;
+  let addedItems = 0;
+  let addedRoutes = 0;
+  let movedToUnassigned = 0;
+  const existingRouteEntries = state.districts.flatMap((district) => district.routes.map((route) => ({ district, route })));
+  const districtsByName = new Map(state.districts.map((district) => [normalize(district.name), district]));
+
+  const mergeIncomingItem = (item, kind) => {
+    const match = findPdfItem(itemIndex, item, kind, usedItemIds);
+    if (match) {
+      refreshPdfItem(match.item, item, kind);
+      preserved += 1;
+      usedItemIds.add(match.item.id);
+      return match.item;
+    }
+    addedItems += 1;
+    return item;
+  };
+
+  const mergedDistricts = [];
+  parsedDistricts.forEach((incomingDistrict) => {
+    const districtKey = normalize(incomingDistrict.name);
+    const existingDistrict = districtsByName.get(districtKey);
+    const district = { id: existingDistrict?.id || incomingDistrict.id || uid("district"), name: incomingDistrict.name, routes: [] };
+    if (existingDistrict) district.name = existingDistrict.name;
+    incomingDistrict.routes.forEach((incomingRoute) => {
+      const sourceRoute = { ...incomingRoute, districtName: incomingDistrict.name };
+      const existingRoute = findPdfRoute(existingRouteEntries, sourceRoute, usedRouteIds);
+      const route = {
+        id: existingRoute?.id || incomingRoute.id || uid("route"),
+        name: incomingRoute.name,
+        notes: existingRoute?.notes || "",
+        locked: existingRoute ? Boolean(existingRoute.locked) : false,
+        sourcePage: incomingRoute.sourcePage,
+        ministers: incomingRoute.ministers.map((item) => mergeIncomingItem(item, "minister")),
+        households: incomingRoute.households.map((item) => mergeIncomingItem(item, "household")),
+      };
+      refreshRouteName(route);
+      district.routes.push(route);
+      usedRouteIds.add(route.id);
+      if (!existingRoute) addedRoutes += 1;
+    });
+    mergedDistricts.push(district);
+  });
+
+  const assignedIds = new Set(mergedDistricts.flatMap((district) => district.routes.flatMap((route) => [...route.ministers, ...route.households].map((item) => item.id))));
+  const ministers = [...state.unassignedMinisters];
+  const households = [...state.unassignedHouseholds];
+  existingRouteEntries.forEach(({ route }) => {
+    [...route.ministers, ...route.households].forEach((item) => {
+      if (assignedIds.has(item.id)) return;
+      const bucket = route.ministers.includes(item) ? ministers : households;
+      if (!bucket.some((candidate) => candidate.id === item.id)) { bucket.push(item); movedToUnassigned += 1; }
+    });
+  });
+  state.districts = mergedDistricts;
+  state.unassignedMinisters = ministers.filter((item, index, bucket) => !assignedIds.has(item.id) && bucket.findIndex((candidate) => candidate.id === item.id) === index);
+  state.unassignedHouseholds = households.filter((item, index, bucket) => !assignedIds.has(item.id) && bucket.findIndex((candidate) => candidate.id === item.id) === index);
+  return { preserved, addedItems, addedRoutes, movedToUnassigned };
+}
+
 async function handlePdf(file) {
   els.pdfStatus.textContent = "Parsing PDF...";
-  try { state.districts = await parsePdf(file); state.pdfLoaded = true; markDirty(); els.pdfStatus.textContent = `${file.name} · ${routeCount()} routes`; els.pdfStatus.classList.add("loaded"); toast(`Parsed ${routeCount()} routes from the PDF.`); render(); }
+  try {
+    const parsedDistricts = await parsePdf(file);
+    const hadWorkspace = state.districts.length > 0;
+    const summary = hadWorkspace ? mergePdfIntoWorkspace(parsedDistricts) : (() => { state.districts = parsedDistricts; return { preserved: 0, addedItems: parsedDistricts.reduce((sum, district) => sum + district.routes.reduce((routeSum, route) => routeSum + route.ministers.length + route.households.length, 0), 0), addedRoutes: parsedDistricts.reduce((sum, district) => sum + district.routes.length, 0) }; })();
+    state.pdfLoaded = true;
+    markDirty();
+    els.pdfStatus.textContent = `${file.name} · ${routeCount()} routes${hadWorkspace ? " refreshed" : ""}`;
+    els.pdfStatus.classList.add("loaded");
+    toast(hadWorkspace ? `PDF refreshed. Updated routes from the PDF, preserved ${summary.preserved} records and ${summary.movedToUnassigned} records moved to unassigned.` : `Parsed ${routeCount()} routes from the PDF.`);
+    render();
+  }
   catch (error) { console.error(error); els.pdfStatus.textContent = "Could not parse this PDF"; toast(error.message || "PDF parsing failed.", "error"); }
 }
 async function handleWorkbook(file, restoreProgress = false) {
