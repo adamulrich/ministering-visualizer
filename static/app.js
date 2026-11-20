@@ -1164,7 +1164,10 @@ function saveWorkbookFile(workbook) {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = "ministering-progress.xlsx";
+    const now = new Date();
+    const pad = (value) => String(value).padStart(2, "0");
+    const timestamp = `${pad(now.getMonth() + 1)}-${pad(now.getDate())}-${String(now.getFullYear()).slice(-2)}-${pad(now.getHours())}${pad(now.getMinutes())}`;
+    link.download = `ministering-progress-${timestamp}.xlsx`;
     document.body.appendChild(link);
     link.click();
     link.remove();
